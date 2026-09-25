@@ -1,0 +1,239 @@
+{
+  "project_name": "AuraHealth EMR & Hospital Operating System",
+  "archetype": "Warm Clinical & Precision Surgical Editorial (Archetype 1 + High Precision Data Mode B)",
+  "vibe": "Warm alabaster and deep Nordic pine, surgical-grade data precision, humane and empathetic patient care, zero generic purple AI-slop gradients",
+  "theme_strategy": {
+    "default_theme": "light",
+    "rationale": "Medical and clinical EMR systems demand high optical legibility under hospital ambient lighting. Light warm-alabaster mode is optimal for clinical charting, prescription reviews, and billing audits. A dedicated deep dark console toggle is available for nocturnal shifts.",
+    "theme_toggle_support": true
+  },
+  "typography": {
+    "anti_default_rule": "BANNED: Inter, Roboto, Open Sans for headings. NO generic AI slop.",
+    "google_fonts_import": "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap",
+    "font_families": {
+      "display_heading": "'Instrument Serif', Georgia, serif",
+      "ui_sans": "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
+      "clinical_mono": "'JetBrains Mono', SFMono-Regular, Menlo, monospace"
+    },
+    "hierarchy": {
+      "h1_hero": "text-4xl sm:text-5xl lg:text-6xl font-normal tracking-tight font-['Instrument_Serif'] leading-tight",
+      "h2_section": "text-2xl sm:text-3xl lg:text-4xl font-normal tracking-tight font-['Instrument_Serif'] leading-snug",
+      "h3_subsection": "text-xl sm:text-2xl font-semibold tracking-tight font-['Plus_Jakarta_Sans'] leading-normal",
+      "h4_card_title": "text-lg sm:text-xl font-semibold font-['Plus_Jakarta_Sans'] tracking-normal",
+      "body_base": "text-base font-normal font-['Plus_Jakarta_Sans'] leading-relaxed text-slate-700 dark:text-slate-300",
+      "body_sm": "text-sm font-normal font-['Plus_Jakarta_Sans'] text-slate-600 dark:text-slate-400",
+      "mono_data": "text-xs sm:text-sm font-medium font-['JetBrains_Mono'] tracking-tight",
+      "eyebrow_label": "text-xs uppercase font-semibold font-['JetBrains_Mono'] tracking-[0.2em] text-emerald-800/80 dark:text-emerald-400"
+    }
+  },
+  "color_palette": {
+    "forbidden_colors": ["#7351B7", "#1B93A4", "generic bright purple/indigo gradient soups"],
+    "brand_identity": {
+      "primary_nordic_pine": "#0F3E2E",
+      "primary_hover": "#175640",
+      "primary_light_tint": "#E8F3EE",
+      "secondary_sage": "#2C6E49",
+      "accent_terracotta": "#C85A32",
+      "accent_amber_warning": "#D97706",
+      "critical_crimson": "#DC2626",
+      "info_cerulean": "#0284C7"
+    },
+    "surface_tokens": {
+      "light": {
+        "canvas_background": "#FBF9F5",
+        "card_surface": "#FFFFFF",
+        "card_inset": "#F4F1EA",
+        "border_subtle": "#E5E0D8",
+        "border_strong": "#CFC8BC",
+        "text_primary": "#141C18",
+        "text_secondary": "#4B5550",
+        "text_muted": "#75827C"
+      },
+      "dark": {
+        "canvas_background": "#0B110E",
+        "card_surface": "#121A15",
+        "card_inset": "#17231C",
+        "border_subtle": "#1F2E25",
+        "border_strong": "#2D4236",
+        "text_primary": "#F2F5F3",
+        "text_secondary": "#A8B8AF",
+        "text_muted": "#6E8277"
+      }
+    },
+    "clinical_status_tokens": {
+      "stable_normal": "bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50",
+      "critical_abnormal": "bg-rose-50 text-rose-800 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/50",
+      "pending_observation": "bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/50",
+      "in_progress": "bg-sky-50 text-sky-800 border border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50",
+      "dispensed_paid": "bg-teal-50 text-teal-800 border border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800/50"
+    }
+  },
+  "layout_and_grid_protocol": {
+    "dashboard_mode": "MODE B: High Density Precision Grid",
+    "structure": {
+      "app_shell": "flex h-screen w-screen overflow-hidden bg-[#FBF9F5] dark:bg-[#0B110E]",
+      "sidebar": "w-64 flex-shrink-0 border-r border-[#E5E0D8] dark:border-[#1F2E25] bg-[#FFFFFF] dark:bg-[#121A15] flex flex-col justify-between z-30",
+      "main_viewport": "flex-1 flex flex-col min-w-0 overflow-y-auto",
+      "top_header": "h-16 border-b border-[#E5E0D8] dark:border-[#1F2E25] bg-[#FFFFFF]/90 dark:bg-[#121A15]/90 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-20",
+      "content_area": "p-6 lg:p-8 space-y-6 max-w-7xl mx-auto w-full"
+    },
+    "grid_specifications": {
+      "metric_row": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4",
+      "split_clinical_layout": "grid grid-cols-1 lg:grid-cols-12 gap-6",
+      "main_panel_span": "lg:col-span-8 space-y-6",
+      "side_panel_span": "lg:col-span-4 space-y-6",
+      "table_card": "bg-white dark:bg-[#121A15] border border-[#E5E0D8] dark:border-[#1F2E25] rounded-xl overflow-hidden shadow-[0_2px_12px_rgba(20,28,24,0.03)]"
+    }
+  },
+  "component_styling_rules": {
+    "buttons": {
+      "primary": "inline-flex items-center justify-center gap-2 rounded-lg bg-[#0F3E2E] hover:bg-[#175640] text-white px-4 py-2.5 text-sm font-medium transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0F3E2E] focus:ring-offset-2",
+      "secondary": "inline-flex items-center justify-center gap-2 rounded-lg bg-[#F4F1EA] dark:bg-[#17231C] text-[#141C18] dark:text-[#F2F5F3] hover:bg-[#EAE5DC] dark:hover:bg-[#1F2E25] border border-[#E5E0D8] dark:border-[#1F2E25] px-4 py-2.5 text-sm font-medium transition-colors",
+      "destructive": "inline-flex items-center justify-center gap-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 text-sm font-medium transition-colors shadow-sm",
+      "pill_badge": "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold"
+    },
+    "tables": {
+      "wrapper": "w-full overflow-x-auto text-left text-sm",
+      "header_row": "bg-[#F4F1EA]/60 dark:bg-[#17231C]/60 text-xs font-semibold uppercase tracking-wider text-[#4B5550] dark:text-[#A8B8AF] border-b border-[#E5E0D8] dark:border-[#1F2E25]",
+      "th": "px-4 py-3.5 whitespace-nowrap",
+      "td": "px-4 py-3.5 whitespace-nowrap border-b border-[#E5E0D8]/60 dark:border-[#1F2E25]/60 text-[#141C18] dark:text-[#F2F5F3]",
+      "hover_row": "hover:bg-[#FBF9F5] dark:hover:bg-[#17231C]/50 transition-colors cursor-pointer"
+    },
+    "cards": {
+      "clinical_card": "bg-white dark:bg-[#121A15] border border-[#E5E0D8] dark:border-[#1F2E25] rounded-xl p-5 shadow-[0_2px_8px_rgba(0,0,0,0.02)] transition-shadow hover:shadow-[0_4px_16px_rgba(0,0,0,0.05)]",
+      "metric_widget": "bg-white dark:bg-[#121A15] border border-[#E5E0D8] dark:border-[#1F2E25] rounded-xl p-5 flex flex-col justify-between"
+    },
+    "form_inputs": {
+      "text_input": "flex h-10 w-full rounded-lg border border-[#E5E0D8] dark:border-[#1F2E25] bg-[#FFFFFF] dark:bg-[#121A15] px-3 py-2 text-sm text-[#141C18] dark:text-[#F2F5F3] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F3E2E] focus-visible:border-transparent transition-all",
+      "select_dropdown": "h-10 rounded-lg border border-[#E5E0D8] dark:border-[#1F2E25] bg-[#FFFFFF] dark:bg-[#121A15] px-3 py-2 text-sm text-[#141C18] dark:text-[#F2F5F3]"
+    }
+  },
+  "image_urls": {
+    "hero_and_login_branding": {
+      "hospital_lobby": {
+        "url": "https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHw0fHxkb2N0b3IlMjBob3NwaXRhbCUyMG1vZGVybiUyMGNsaW5pY3xlbnwwfHx8fDE3OTAzMzU3NzV8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Luminous modern architectural hospital reception and atrium lobby for marketing hero and login backdrop",
+        "category": "branding_and_auth"
+      },
+      "lead_surgeon_portrait": {
+        "url": "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwxfHxkb2N0b3IlMjBob3NwaXRhbCUyMG1vZGVybiUyMGNsaW5pY3xlbnwwfHx8fDE3OTAzMzU3NzV8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Physician in clinical attire with stethoscope for clinician profile and demo doctor avatar",
+        "category": "staff_and_avatars"
+      },
+      "chief_medical_officer": {
+        "url": "https://images.pexels.com/photos/32115905/pexels-photo-32115905.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Female chief medical officer portrait in hospital clinical department",
+        "category": "staff_and_avatars"
+      }
+    },
+    "laboratory_module": {
+      "pipette_specimen_analysis": {
+        "url": "https://images.unsplash.com/photo-1614935151651-0bea6508db6b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwxfHxtZWRpY2FsJTIwbGFib3JhdG9yeSUyMHNjaWVudGlzdCUyMHRlc3R8ZW58MHx8fHwxNzkwMzM1Nzc1fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Lab scientist conducting diagnostic assays with test tubes for lab tests module",
+        "category": "laboratory"
+      },
+      "vial_specimen_culture": {
+        "url": "https://images.unsplash.com/photo-1582560475093-ba66accbc424?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHw0fHxtZWRpY2FsJTIwbGFib3JhdG9yeSUyMHNjaWVudGlzdCUyMHRlc3R8ZW58MHx8fHwxNzkwMzM1Nzc1fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Precision clinical chemist loading micro-vial for diagnostic pathology module",
+        "category": "laboratory"
+      }
+    },
+    "pharmacy_and_medications": {
+      "dispensary_inventory_shelves": {
+        "url": "https://images.unsplash.com/photo-1595432576728-94e0e94a7663?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwyfHxwaGFybWFjaXN0JTIwbWVkaWNpbmUlMjBwaGFybWFjeSUyMHNoZWxmfGVufDB8fHx8MTc5MDMzNTc3NXww&ixlib=rb-4.1.0&q=85",
+        "description": "Medical formulary and pharmaceutical inventory bottles for pharmacy inventory tracker",
+        "category": "pharmacy"
+      },
+      "clinical_pharmacist_dispensing": {
+        "url": "https://images.pexels.com/photos/9629685/pexels-photo-9629685.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Pharmacist in surgical cap organizing medication shelf for pharmacy order fulfillment",
+        "category": "pharmacy"
+      }
+    }
+  },
+  "multi_tenant_architecture_guidelines": {
+    "tenant_context_switcher": {
+      "placement": "Top-left of sidebar and header",
+      "visual_spec": "Display tenant name (e.g. 'St. Jude Metropolitan Medical Center' vs 'Oakwood Family Practice Clinic') with tenant badge, active department, and tenant-switch dropdown menu with tenant logo/initials avatar",
+      "data_testid": "tenant-switcher-dropdown"
+    },
+    "role_based_access_controls": {
+      "roles": ["hospital_admin", "doctor", "nurse", "pharmacist", "lab_technician", "billing_specialist", "patient"],
+      "ui_adaptation": "Role badge clearly displayed near user profile with permission-filtered navigation tabs."
+    }
+  },
+  "modules_and_key_screens": {
+    "1_executive_dashboard": {
+      "description": "Command center with bed occupancy, daily patient throughput, urgent lab alerts, active prescriptions, and billing collections",
+      "widgets": ["KPI Cards", "Daily Clinical Appointments Timeline", "Urgent Triage & Vital Alerts", "Revenue / Claims Bar Chart"]
+    },
+    "2_patient_emr_management": {
+      "description": "Comprehensive Electronic Medical Record view with medical history, allergies, vitals timeline, encounter notes, and SOAP formatting",
+      "components": ["Patient Search & Filter Bar", "Patient Profile Banner with Blood Type & Critical Flags", "SOAP Clinical Note Editor", "Historical Encounter Accordion"]
+    },
+    "3_appointment_scheduling": {
+      "description": "Multi-provider calendar view (Day, Week, Month) with doctor filter, room selector, and appointment status flow (Scheduled, Checked-In, In-Consultation, Completed)",
+      "components": ["Interactive Calendar Grid", "Doctor Select", "Quick-Book Appointment Dialog with time slots"]
+    },
+    "4_prescriptions_and_medications": {
+      "description": "Electronic prescription authoring with dosage calculators, frequency intervals, drug-interaction allergy cross-checks, and auto-dispatch to pharmacy",
+      "components": ["Prescription Authoring Form", "Current Medications Table", "Refill Request Badges"]
+    },
+    "5_pharmacy_inventory": {
+      "description": "Stock levels, batch expiry tracking, low-stock threshold alerts, and direct dispensing interface",
+      "components": ["Stock Level Progress Indicators", "Expiring Batches Alert Banner", "Dispense Medication Dialog"]
+    },
+    "6_laboratory_and_diagnostics": {
+      "description": "Order diagnostic panels (CBC, Lipid, Metabolic, Biopsy), upload/record test values, reference range visual flags (Normal vs High/Low)",
+      "components": ["Lab Orders Queue", "Specimen Collection Modal", "Quantitative Value Range Indicator with High/Low Flag"]
+    },
+    "7_ai_clinical_assistant": {
+      "description": "HIPAA-conscious AI clinical copilot for ICD-10 code suggestion, drug interaction checks, differential diagnosis ideas, and SOAP note synthesis",
+      "components": ["Floating/Docked Chat Panel", "Pre-filled Clinical Prompts", "Evidence Reference Citation Badges"]
+    },
+    "8_billing_and_insurance": {
+      "description": "Claims processing, Superbills, Invoice generation, Stripe checkout modal integration, and payment receipt logs",
+      "components": ["Invoice Status Data Table", "Stripe Checkout Simulator / Payment Gateway Trigger", "PDF Download Action"]
+    },
+    "9_staff_and_rbac": {
+      "description": "Hospital staff directory with license numbers, assigned departments, on-call schedules, and role permission matrices",
+      "components": ["Staff Directory Grid", "Role Permission Toggles", "Invite New Provider Modal"]
+    }
+  },
+  "accessibility_and_contrast": {
+    "wcag_level": "WCAG AA / APCA compliant",
+    "text_contrast": "Minimum 4.5:1 for standard body text, 3:1 for large display headers",
+    "focus_states": "High-contrast ring with ring-[#0F3E2E] dark:ring-emerald-400 and ring-offset-2",
+    "reduced_motion": "All motion transitions respect prefers-reduced-motion media query"
+  },
+  "testing_attributes": {
+    "requirement": "EVERY interactive element and primary data container MUST carry a role-based kebab-case data-testid attribute.",
+    "examples": [
+      "data-testid='tenant-switcher-dropdown'",
+      "data-testid='global-patient-search-input'",
+      "data-testid='new-patient-button'",
+      "data-testid='new-appointment-modal-trigger'",
+      "data-testid='soap-notes-textarea'",
+      "data-testid='prescribe-medication-button'",
+      "data-testid='lab-result-status-badge'",
+      "data-testid='ai-clinical-chat-submit-button'",
+      "data-testid='billing-stripe-pay-button'",
+      "data-testid='theme-toggle-button'"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "1. Read this guidelines file carefully. DO NOT use generic purple gradients or default standard Inter headings.",
+    "2. Implement a unified multi-tenant hospital/clinic operating system with instant tenant switcher in header/sidebar.",
+    "3. Use the defined color tokens: Nordic Pine (#0F3E2E) as primary anchor, Warm Alabaster (#FBF9F5) as base canvas, and warm borders (#E5E0D8).",
+    "4. Ensure all tab switches (Patients, Appointments, Prescriptions, Pharmacy, Lab, Staff, AI Assistant, Billing) render realistic and complete interactive clinical flows.",
+    "5. Populate rich, authentic clinical data: realistic blood pressure readings, glucose levels, medication dosages (e.g., Atorvastatin 20mg, Amoxicillin 500mg, Metformin 850mg), ICD-10 diagnostic codes, and lab panels.",
+    "6. Include the AI Clinical Assistant with interactive prompt chips and diagnostic synthesis.",
+    "7. Attach data-testid to all buttons, tabs, inputs, modals, and status badges so end-to-end tests can verify seamlessly."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": {
+    "anti_ai_slop": "Never apply centered body layouts, uniform boring cards, or glowing neon gradients. Use organic structure, crisp borders, and surgical typography.",
+    "toasts": "Use Sonner for toasts (sonner package installed).",
+    "icons": "Use lucide-react with specific medical icons (Stethoscope, Activity, Pill, FlaskConical, Calendar, FileText, Bot, DollarSign, ShieldCheck, Building2).",
+    "spacing": "Generous clinical spacing: p-6 to p-8 for major sections, compact p-3 for dense data grids."
+  }
+}
