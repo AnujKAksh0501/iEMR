@@ -13,6 +13,9 @@ import LabTests from "@/pages/LabTests";
 import Staff from "@/pages/Staff";
 import Billing from "@/pages/Billing";
 import Assistant from "@/pages/Assistant";
+import Automation from "@/pages/Automation";
+import Developer from "@/pages/Developer";
+import Docs from "@/pages/Docs";
 import PaymentSuccess from "@/pages/PaymentSuccess";
 
 function Protected({ children }) {
@@ -40,6 +43,9 @@ function App() {
             <Route path="staff" element={<Staff />} />
             <Route path="billing" element={<Billing />} />
             <Route path="assistant" element={<Assistant />} />
+            <Route path="automation" element={<Automation />} />
+            <Route path="developer" element={<Developer />} />
+            <Route path="docs" element={<Docs />} />
           </Route>
           <Route path="/payment/success" element={<Protected><PaymentSuccess /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />

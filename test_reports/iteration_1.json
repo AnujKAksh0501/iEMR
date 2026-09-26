@@ -1,0 +1,28 @@
+{
+  "summary": "First-finish smoke test: backend API + frontend UI for the multi-tenant EMR SaaS. All critical backend flows (auth login/register, CRUD across patients/appointments/prescriptions/medications/labtests, staff, invoice, Stripe checkout session creation, AI assistant chat, dashboard stats, tenant isolation) return 200/expected payloads. Frontend loads, super_admin login lands on /app dashboard rendering stat cards and layout, Patients nav & 'New Patient' modal open correctly.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login super_admin returns JWT + user (role=super_admin)",
+    "POST /api/auth/register creates new clinic + returns clinic_admin JWT & new tenant_id",
+    "GET /api/auth/me with Bearer token returns current user",
+    "POST/GET /api/patients CRUD (tenant-scoped, tenant_id set on record)",
+    "POST /api/appointments creates appointment linked to patient",
+    "POST /api/prescriptions and /api/labtests succeed",
+    "POST /api/medications creates med; low_stock flag reflected in dashboard stats (stock=10 <= reorder=20 => low_stock=1)",
+    "POST /api/staff creates staff (role=nurse) under tenant",
+    "POST /api/invoices creates invoice (status=unpaid, payment_status=pending)",
+    "POST /api/payments/checkout returns valid checkout.stripe.com checkout_url + session_id",
+    "POST /api/assistant/chat returns reply + session_id (Emergent LLM gpt-5.4 responding)",
+    "GET /api/dashboard/stats returns tenant-scoped counts (patients=1, appts_total=1, medications=1, low_stock=1)",
+    "Multi-tenant isolation: second registered tenant sees [] on GET /api/patients while tenant A has 1",
+    "Frontend /login renders MediCore login page (auth-email/password/submit-btn present, Continue with Google button visible)",
+    "Login as super_admin redirects to /app dashboard; sidebar shows Dashboard/Patients/Appointments/Prescriptions/Pharmacy/Lab Tests/Staff/Billing/AI Assistant",
+    "nav-patients navigates to /app/patients; add-patients-btn opens 'New Patient' modal with all fields"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": "Auth response field name is 'token' (not 'access_token') - matches AuthContext (localStorage 'emr_token'). Stripe test key sk_test_emergent works and session is created. Dashboard stat cards initially show em-dash placeholders while numbers load (UI cosmetic, not a blocker). Google OAuth button exists but end-to-end Google flow not automated per guidelines."
+}

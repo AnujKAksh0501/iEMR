@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Users, CalendarDays, Pill, Package, FlaskConical,
-  UserCog, Receipt, Sparkles, LogOut, Activity, Menu, X,
+  UserCog, Receipt, Sparkles, LogOut, Activity, Menu, X, Bell, Code2, BookOpen,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -16,6 +16,9 @@ const NAV = [
   { to: "/app/staff", label: "Staff", icon: UserCog, id: "staff" },
   { to: "/app/billing", label: "Billing", icon: Receipt, id: "billing" },
   { to: "/app/assistant", label: "AI Assistant", icon: Sparkles, id: "assistant" },
+  { to: "/app/automation", label: "Automation", icon: Bell, id: "automation" },
+  { to: "/app/developer", label: "Developer API", icon: Code2, id: "developer" },
+  { to: "/app/docs", label: "Documentation", icon: BookOpen, id: "docs" },
 ];
 
 export default function Layout() {
