@@ -79,7 +79,7 @@ export default function Developer() {
             ["PUT", "/public/appointments/{id}"],
             ["GET", "/public/ping"],
           ].map(([m, p]) => (
-            <div key={p} className="flex items-center gap-2">
+            <div key={`${m}-${p}`} className="flex items-center gap-2">
               <Badge variant="outline" className="mono w-14 justify-center">{m}</Badge>
               <code className="mono text-xs">{p}</code>
             </div>
