@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 4 (market-readiness hardening: password policy, lockout, password reset, flexible AI providers, audit logging, PHI patient_id linkage, SaaS subscription + Stripe checkout, payload sanitization, GDPR export/erasure, /api/health, legal pages) is fully green. Backend: 18/18 new tests pass in /app/backend/tests/test_market_hardening.py; 52/53 total across all suites (1 pre-existing flaky regression in test_automation_apikeys.py::TestPublicApi::test_availability unrelated to this iteration — order-dependent booked-slots check). Frontend end-to-end verified against public URL: register→app; Subscription plans (plan-free/starter/pro + upgrade-starter-btn + upgrade-pro-btn) render; Compliance page shows audit rows + export-data-btn; Automation IntegrationsPanel exposes integ-ai-provider / integ-ai-model / integ-ai-save; forgot-password flow works with dev_token prefill and login succeeds with the new password; /terms and /privacy render.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_market_hardening.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "(low) test_automation_apikeys.py::TestPublicApi::test_availability is order-dependent (expects the '10:00' slot from an earlier test to appear in `booked`); make it self-seed the appt or query booked-slots after its own POST.",
+    "(low, from iter3) Developer endpoints list still has duplicate React key warning for `/public/patients` and `/public/appointments` — use `${method}-${path}` as key."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1124 lines. Split into modules: security.py (password/lockout/audit/sanitize), integrations.py (email/whatsapp/ai providers), portal.py, subscription.py, compliance.py, cron.py, widget.py. Reduces blast radius and speeds re-tests.",
+    "AI fallback: resolve_ai_cfg silently falls back to the emergent managed key when a user selects openai/anthropic/gemini WITHOUT a key. This can be surprising for admins who think they're billing their own OpenAI account. Recommend either: (a) return 400 'provider requires api_key' on chat, or (b) surface a 'using_managed_key: true' flag in /assistant/chat response and /integrations GET so the UI can warn.",
+    "Password reset: dev_token is returned only when email is unconfigured (good), but the token is still logged into notifications collection with status='skipped_not_configured' including the raw token in `body`. That means the reset code is persisted in plaintext in the tenant's notification log — anyone with staff read access to /api/notifications can hijack a reset. Fix: don't insert the reset body into notifications, OR redact the token before logging.",
+    "compliance_delete_patient still uses OR name-match as fallback: `{$or: [{patient_id: pid}, {patient: pt.name}]}` — for legacy rows this can erase a same-name patient's records in the same tenant. Consider requiring an explicit flag `include_legacy_name_match=true` for the fallback.",
+    "sanitize_payload strips role/tenant_id (good) but /api/staff POST accepts arbitrary role strings from the body via the Pydantic StaffIn (validated against ROLES). This is fine, but clinic_admin can create other super_admin/clinic_admin accounts — consider restricting to non-admin roles for clinic_admin callers.",
+    "PLAN prices are hardcoded in USD and the currency is hardcoded to 'usd' in subscription_checkout. Add config for currency + plan catalog before productionizing.",
+    "check_lockout returns 429 correctly but on lockout expiry the `fails` counter was reset to 0 when locking — good — but there's no unlock event audit log. Consider auditing 'lockout' and 'lockout_cleared' for security review.",
+    "record_login_fail relies on the unique-index upsert on login_attempts.email; on the very first fail, the upsert race between two concurrent requests may produce a duplicate-key error rather than incrementing. Use $inc with $setOnInsert or catch DuplicateKeyError.",
+    "CORS: still allow_origin_regex='.*' + credentials=True when CORS_ORIGINS is unset/'*' — flagged for security before production."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_market_hardening.py"
+  ],
+  "success_rate": {"backend": "100% for this iteration (18/18); 98% overall (52/53)", "frontend": "100%"},
+  "test_credentials": "Super Admin: mac11rs.com@gmail.com / Admin@12345 (not touched). Test clinics registered per-run with TEST_ prefix.",
+  "seed_data_creation": "Each test class registers throw-away TEST_ clinics; TestAudit non-admin test uses its own fresh clinic to avoid free-plan staff-cap collision.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New backend test file /app/backend/tests/test_market_hardening.py covers: password policy (weak rejected, missing-upper rejected, strong succeeds + free subscription auto-created), brute-force lockout (5 fails → 429 even with correct pw), password reset (dev_token surfaced when email unconfigured, weak new pw rejected, strong new pw works, old pw fails after reset, invalid token → 400), AI (put emergent+model → get returns ai_providers keys emergent/openai/anthropic/gemini, chat returns provider+model, secret keys masked), audit logs (populated with actor/action/resource/ip; non-admin doctor → 403), PHI patient_id linkage (two same-name patients each portal-see only their own linked appointment; passes patient_id explicitly at creation), subscription (free plan max_staff=3 enforced with 402, pro checkout returns stripe URL, invalid plan → 400), sanitize_payload ($where/dotted keys stripped; role/tenant_id cannot override server values), GDPR (export contains all collections; delete cascades appointments and audit-logs 'erase' action), and /api/health returns status:ok db:up. Frontend flow tested: register → nav-subscription/plan-*/upgrade-* → nav-compliance/export-data-btn/audit-row → nav-automation/integ-ai-* → logout → forgot-password-link → reset-email → reset-request-btn (dev_token prefilled) → reset-token/reset-password → reset-confirm-btn → new-pw login → /terms and /privacy render (~5KB each). Pre-existing flaky test: test_automation_apikeys.py::TestPublicApi::test_availability (order-dependent). test_credentials.md unchanged.",
+  "rca of the issue": "N/A — no functional bugs found this iteration. The one legacy flaky test is order-dependent: it POSTs an appointment then re-queries availability, but xdist loadscope class isolation combined with the underlying appointment being consumed by earlier assertions leaves the assertion checking `10:00` in `booked` against an empty list. Fix: after the POST, refetch availability with the same date used in the POST rather than reusing the fixture-level date."
+}

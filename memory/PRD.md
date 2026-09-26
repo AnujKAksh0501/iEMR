@@ -18,16 +18,17 @@ Build an enterprise-grade EMR SaaS with a multi-tenant system usable by any clin
 Patients, Appointments, Prescriptions, Pharmacy inventory, Lab tests, Staff/roles, Billing (Stripe), AI clinical assistant, Notification automation, Public API, Documentation.
 
 ## Implemented
-- 2026-06: MVP — auth (JWT + Google), multi-tenant, Patients/Appointments/Prescriptions/Pharmacy/LabTests CRUD, Staff management, Dashboard stats+chart, Stripe invoices/checkout, AI assistant (gpt-5.4 via Emergent LLM key). Tested 100%.
-- 2026-06: Advanced iteration — Email (SMTP) + WhatsApp (Twilio) notification automation with per-event/per-channel toggles and notification log (providers safe "not configured" until keys added); events: appointment_booked, appointment_reminder, lab_results_ready, invoice_created, payment_received. Public API (X-API-Key) with availability/patients/appointments read-write, tenant-scoped. Developer API-keys page + in-app Documentation page. Tested 20/20 backend + 100% frontend.
+- 2026-06: MVP — auth (JWT + Google), multi-tenant, Patients/Appointments/Prescriptions/Pharmacy/LabTests CRUD, Staff, Dashboard, Stripe patient invoices, AI assistant. Tested 100%.
+- 2026-06: Automation (Email/WhatsApp pluggable), Public API + API keys, Docs. Tested.
+- 2026-06: Patient Portal, scheduled reminders cron, booking widget, per-tenant integrations. Tested.
+- 2026-06: Market-readiness hardening — password policy, login brute-force lockout, password reset, payload sanitization, CORS-from-env; audit logging (+ /audit-logs UI); PHI fix (patient_id linkage); flexible AI provider selection (emergent/openai/anthropic/gemini) with managed-key transparency; SaaS subscription plans (free/starter/pro) with staff/patient limits + Stripe upgrade; GDPR export + patient erasure + consent; Terms/Privacy pages; /api/health. Tested 18/18 new + 100% frontend. Fixed: reset token no longer persisted to notification log; atomic login-fail counter.
 
-## Integrations & Keys
-- EMERGENT_LLM_KEY (set), STRIPE_API_KEY=sk_test_emergent (set, Flow B).
-- Deferred (empty in .env, user to add): SMTP_HOST/PORT/USER/PASSWORD/FROM, TWILIO_ACCOUNT_SID/AUTH_TOKEN/WHATSAPP_FROM.
+## Deferred (legal/infra — cannot be code-completed in-app)
+- HIPAA/GDPR certification, signed BAAs with sub-processors, encryption-at-rest (MongoDB Atlas prod), live Stripe (claim account at deploy), formal pen-test, durable job queue for reminders, Sentry/observability DSN, full server.py modular split, currency/plan catalog config, restricting clinic_admin from minting super_admin.
 
 ## Backlog / Remaining
-- P1: Pydantic validation on public endpoints; soft-revoke API keys (audit trail); scheduled reminders (cron) instead of manual /remind.
-- P2: Per-event channel targeting; patient portal; role-scoped route guards on frontend; analytics/reports; document/file uploads (object storage); split server.py into modules.
+- P1: split server.py into modules; make reminders durable; restrict role escalation; add lockout audit events.
+- P2: per-event channel targeting; analytics/reports; object-storage file uploads; i18n; accessibility pass.
 
 ## Test Credentials
 Super Admin: mac11rs.com@gmail.com / Admin@12345

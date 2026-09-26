@@ -12,6 +12,7 @@ load_dotenv(ROOT_DIR / '.env')
 
 import bcrypt
 import jwt
+from pymongo import ReturnDocument
 from fastapi import FastAPI, APIRouter, Request, HTTPException, Depends
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -103,13 +104,13 @@ async def check_lockout(email: str):
             raise HTTPException(429, "Too many failed attempts. Please try again later.")
 
 async def record_login_fail(email: str):
-    rec = await db.login_attempts.find_one({"email": email})
-    fails = (rec.get("fails", 0) if rec else 0) + 1
-    upd = {"email": email, "fails": fails, "updated_at": now_iso()}
-    if fails >= MAX_LOGIN_FAILS:
-        upd["locked_until"] = (datetime.now(timezone.utc) + timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
-        upd["fails"] = 0
-    await db.login_attempts.update_one({"email": email}, {"$set": upd}, upsert=True)
+    rec = await db.login_attempts.find_one_and_update(
+        {"email": email}, {"$inc": {"fails": 1}, "$set": {"updated_at": now_iso()}},
+        upsert=True, return_document=ReturnDocument.AFTER)
+    if rec.get("fails", 0) >= MAX_LOGIN_FAILS:
+        await db.login_attempts.update_one({"email": email}, {"$set": {
+            "locked_until": (datetime.now(timezone.utc) + timedelta(minutes=LOCKOUT_MINUTES)).isoformat(),
+            "fails": 0}})
 
 async def clear_login_fails(email: str):
     await db.login_attempts.delete_one({"email": email})
@@ -691,7 +692,8 @@ async def assistant_chat(body: ChatIn, user: dict = Depends(get_current_user)):
         "provider": ai["display"], "model": ai["model"], "created_at": now_iso()})
     await audit(user["email"], user["tenant_id"], "ai_query", "assistant", sid, None,
                 {"provider": ai["display"], "model": ai["model"]})
-    return {"reply": reply, "session_id": sid, "provider": ai["display"], "model": ai["model"]}
+    return {"reply": reply, "session_id": sid, "provider": ai["display"], "model": ai["model"],
+            "using_managed_key": ai["display"] == "emergent"}
 
 # ---------- API keys (developer) ----------
 @api.get("/apikeys")
@@ -823,7 +825,9 @@ async def get_integrations(user: dict = Depends(get_current_user)):
         "whatsapp": {"provider": (integ.get("whatsapp") or {}).get("provider"),
                      "config": _mask_cfg(integ.get("whatsapp")), "configured": whatsapp_configured_for(integ)},
         "ai": {"provider": (integ.get("ai") or {}).get("provider") or "emergent",
-               "config": _mask_cfg(integ.get("ai")), "configured": True},
+               "config": _mask_cfg(integ.get("ai")),
+               "configured": bool(((integ.get("ai") or {}).get("provider") or "emergent") == "emergent" or (integ.get("ai") or {}).get("api_key")),
+               "using_managed_key": resolve_ai_cfg(integ)["display"] == "emergent"},
         "email_providers": EMAIL_PROVIDERS, "whatsapp_providers": WHATSAPP_PROVIDERS,
         "ai_providers": AI_PROVIDERS, "ai_default_models": AI_DEFAULT_MODELS,
         "secret_fields": sorted(SECRET_FIELDS),
@@ -992,11 +996,18 @@ async def request_password_reset(body: ResetReqIn):
         await db.password_resets.insert_one({"email": user["email"], "token": token,
             "expires": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
             "used": False, "created_at": now_iso()})
-        await notify(user["tenant_id"], "password_reset", user["email"], None,
-                     "Password reset code", f"Your password reset code is: {token}\nIt expires in 1 hour.")
+        # Deliver the code by email directly — never persist the token in the notification log.
         st = await get_settings(user["tenant_id"])
-        if not email_configured_for(st.get("integrations", {})):
+        cfg = resolve_email_cfg(st.get("integrations", {}))
+        if cfg:
+            try:
+                send_email_via(cfg, user["email"], "Password reset code",
+                               f"Your password reset code is: {token}\nIt expires in 1 hour.")
+            except Exception as e:
+                logger.warning(f"reset email failed: {e}")
+        else:
             dev_token = token  # surfaced only when no email provider is configured yet
+        await audit(user["email"], user["tenant_id"], "password_reset_request", "user", user["id"])
     return {"ok": True, "dev_token": dev_token}
 
 @api.post("/auth/reset")
