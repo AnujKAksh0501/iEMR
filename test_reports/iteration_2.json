@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 2 testing (notifications automation + API keys + Public API + regression). 20/20 backend pytest cases pass, and full frontend flow for Automation, Docs, and Developer pages passes end-to-end via Playwright. Providers (SMTP/Twilio) are intentionally unset — verified that notifications for appointment_booked, appointment_reminder, lab_results_ready, invoice_created, payment_received are LOGGED with status 'skipped_not_configured' via /api/notifications and rendered in the Automation log table. API keys create/list/revoke work; secret is only returned once. Public API auth (X-API-Key) rejects missing/invalid/revoked keys and is fully tenant-scoped (Tenant B key cannot see Tenant A data). Public booking triggers appointment_booked notification in the correct tenant. Core EMR regression (auth/me, dashboard stats, CRUD, AI assistant) still green.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_automation_apikeys.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py 617 lines — approaching the 700 threshold; consider splitting notifications, public_api, apikeys, crud factory into separate modules on the next iteration.",
+    "DELETE /api/apikeys hard-deletes the key document. Consider soft-revoke ({active:false}) to preserve audit trail; tests currently pass either way but a revoked key becomes indistinguishable from never-existed.",
+    "API key list endpoint returns fields via manual dict projection — fine, but consider a Pydantic response model for consistency and to guarantee no accidental hash leak.",
+    "notify() enforces per-channel enable check but does not respect per-event channel targeting (e.g., WhatsApp-only reminders). Minor product enhancement, not a bug.",
+    "hash_key uses SHA-256 without salt — acceptable for high-entropy random keys (24 bytes) but note it in docs; peppering (HMAC with server secret) would be stronger.",
+    "In public POST /appointments there is no minimal validation (patient/date/time required). External sites can insert empty appointment rows. Recommend Pydantic model for public endpoints.",
+    "CORSMiddleware uses allow_origin_regex='.*' with allow_credentials=True — Starlette allows this via regex, but it's still equivalent to wildcard with cookies; okay because auth is Bearer/API-Key header, but flag for security review."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_automation_apikeys.py"
+  ],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100%"},
+  "test_credentials": "Super Admin: mac11rs.com@gmail.com / Admin@12345",
+  "seed_data_creation": "Two fresh clinics registered per test run (Clinic A, Clinic B) with random emails; TEST_ prefixed patients/appointments/labs/invoices/API-keys. Tenant B verified isolated from Tenant A.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New backend test file /app/backend/tests/test_automation_apikeys.py covers notification status/settings/triggers, API key create/list/revoke, and public API with tenant isolation. Frontend testids confirmed working: nav-automation, nav-developer, nav-docs, channel-email/whatsapp, event-<key>, send-test-btn, test-email/phone, notif-row, create-key-btn, key-name, save-key-btn, new-key-value, apikey-row, revoke-key-btn, doc-nav-<section>, page-automation/developer/docs. NOTE: the auth submit button testid is 'auth-submit-btn' (not 'submit-btn' as originally documented in iteration 1) — used the correct one here. Providers stay unconfigured so notification status is always 'skipped_not_configured' — treat that as PASS not FAIL.",
+  "rca of the issue": "N/A — no functional bugs found."
+}
