@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 3 (integrations, patient portal, cron reminders, embeddable widget) fully green. 15/15 backend pytest cases pass and all requested frontend flows (portal login → home → logout, IntegrationsPanel save with masked-secret round-trip, Developer widget-card & copy button) pass end-to-end. Providers stay unconfigured by default and notifications correctly log status='skipped_not_configured' — treated as PASS. Cron endpoint enforces bearer WEBHOOK_CRON_SECRET (401 without, 200 {status:accepted} with correct secret) and flips reminder_sent=true on tomorrow's appointments. Widget.js served with application/javascript. Regression on staff auth/login and dashboard stats confirmed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Developer page endpoints list", "issues": ["React console warning: duplicate keys `/public/patients` and `/public/appointments` — endpoints array probably uses `path` as the key while multiple rows share the same path (GET/POST or GET/PUT). Change key to `${method}-${path}` to remove the warning."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_portal_integrations_cron.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "(Nice-to-have) Fix duplicate React key warning on Developer endpoints list by combining method+path as the key."
+  ],
+  "critical_code_review_comments": [
+    "server.py has grown to 855 lines. Split into modules: integrations.py (providers/notify), portal.py, cron.py, widget.py — reduces risk and speeds tests.",
+    "notify() and _run_appointment_reminders() couple email+whatsapp channels; consider per-event channel targeting (e.g., reminders WhatsApp-only) as future config.",
+    "_run_appointment_reminders runs in-process via asyncio.create_task without persistence — if the pod restarts mid-run, partially-processed appts won't be retried until next day. Consider a lightweight job table or making the endpoint idempotent-and-batched.",
+    "portal/appointments|prescriptions|invoices match patient by NAME (a.get('patient')==pt.name). If two patients share the same name in a tenant, they will see each other's records. Match on patient_id (link at creation) to eliminate this cross-record risk.",
+    "PortalLogin.jsx sets loading=true but never resets it on the success path (relies on navigate); acceptable but if navigate is blocked (e.g., portal token invalid) the button stays disabled — set loading=false in finally.",
+    "CORSMiddleware still uses allow_origin_regex='.*' with allow_credentials=True — accept for header-based auth but flag for security review before production.",
+    "widget.js is served unauthenticated (correct) but has no cache headers; adding Cache-Control: public, max-age=300 would reduce backend hits."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_portal_integrations_cron.py"
+  ],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100%"},
+  "test_credentials": "Super Admin: mac11rs.com@gmail.com / Admin@12345. Test clinics registered per-run (TEST_ prefix). Sample portal patient: portal.pat@demo.com / +14155551234.",
+  "seed_data_creation": "Two fresh clinics + one TEST_ prefixed patient per test run for isolation checks; one tomorrow-dated appointment for cron verification.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New backend test file /app/backend/tests/test_portal_integrations_cron.py covers: (a) GET/PUT /api/integrations with masked-secret preservation, provider clearing, tenant isolation; (b) POST /api/portal/login case-insensitive email match + 401 on mismatch; (c) portal token scoping — clinic JWT rejected on /portal/*, patient token rejected on /patients; (d) POST /api/cron/appointment-reminders auth + reminder_sent flip + appointment_reminder notification log; (e) GET /api/public/widget.js content-type=application/javascript. Frontend testids verified working: portal-email, portal-phone, portal-login-btn, portal-home, portal-logout-btn, integrations-panel, integ-email-provider, integ-email-api_key, integ-email-from_email, integ-email-save, widget-card, copy-widget-btn. pytest.ini pins -n 2 --dist loadscope; use `-n 0` to run serial. Providers unset → status='skipped_not_configured' is PASS.",
+  "rca of the issue": "N/A — no functional bugs found."
+}
