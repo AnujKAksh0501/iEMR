@@ -15,6 +15,7 @@ import jwt
 from pymongo import ReturnDocument
 from fastapi import FastAPI, APIRouter, Request, HTTPException, Depends
 from starlette.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
@@ -101,6 +102,7 @@ async def check_lockout(email: str):
         except Exception:
             lu = None
         if lu and lu > datetime.now(timezone.utc):
+            await audit(email, rec.get("tenant_id"), "login_blocked_locked", "user", None)
             raise HTTPException(429, "Too many failed attempts. Please try again later.")
 
 async def record_login_fail(email: str):
@@ -111,6 +113,8 @@ async def record_login_fail(email: str):
         await db.login_attempts.update_one({"email": email}, {"$set": {
             "locked_until": (datetime.now(timezone.utc) + timedelta(minutes=LOCKOUT_MINUTES)).isoformat(),
             "fails": 0}})
+        await audit(email, None, "account_lockout", "user", None,
+                    {"reason": f"{MAX_LOGIN_FAILS} failed logins", "minutes": LOCKOUT_MINUTES})
 
 async def clear_login_fails(email: str):
     await db.login_attempts.delete_one({"email": email})
@@ -283,6 +287,8 @@ async def list_staff(user: dict = Depends(get_current_user)):
 async def add_staff(body: StaffIn, request: Request, user: dict = Depends(require_roles("clinic_admin", "super_admin"))):
     if body.role not in ROLES:
         raise HTTPException(400, "Invalid role")
+    if body.role == "super_admin" and user["role"] != "super_admin":
+        raise HTTPException(403, "Only a super admin can create super admin accounts")
     validate_password(body.password)
     await enforce_limit(user["tenant_id"], "staff")
     email = body.email.lower()
