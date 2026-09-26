@@ -15,6 +15,7 @@ const LABELS = {
   host: "SMTP Host", port: "Port", username: "Username", password: "Password", from_email: "From email",
   api_key: "API Key", domain: "Domain", account_sid: "Account SID", auth_token: "Auth Token",
   from_number: "From number (whatsapp:+1...)", phone_number_id: "Phone Number ID", access_token: "Access Token",
+  model: "Model",
 };
 
 function ChannelConfig({ channel, providers, secretFields, value, onSave }) {
@@ -75,6 +76,7 @@ export default function IntegrationsPanel() {
   if (!data) return null;
   const emailValue = { provider: data.email.provider || "", ...data.email.config };
   const waValue = { provider: data.whatsapp.provider || "", ...data.whatsapp.config };
+  const aiValue = { provider: (data.ai && data.ai.provider) || "emergent", ...(data.ai ? data.ai.config : {}) };
 
   return (
     <Card className="card-shadow mb-6 border-border/70 p-6" data-testid="integrations-panel">
@@ -83,11 +85,12 @@ export default function IntegrationsPanel() {
         <h3 className="font-serif text-xl">Integrations — plug in any provider</h3>
       </div>
       <p className="mb-4 text-sm text-muted-foreground">
-        Swap in any email or WhatsApp platform by selecting it and pasting its keys. Saved keys are stored securely and shown masked.
+        Swap in any email, WhatsApp or AI platform by selecting it and pasting its keys. Choose <b>emergent</b> for AI to use the built-in managed key, or bring your own OpenAI, Anthropic or Gemini key. Saved keys are stored securely and shown masked.
       </p>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-3 sm:grid-cols-2">
         <ChannelConfig channel="email" providers={data.email_providers} secretFields={data.secret_fields} value={emailValue} onSave={save} />
         <ChannelConfig channel="whatsapp" providers={data.whatsapp_providers} secretFields={data.secret_fields} value={waValue} onSave={save} />
+        <ChannelConfig channel="ai" providers={data.ai_providers} secretFields={data.secret_fields} value={aiValue} onSave={save} />
       </div>
     </Card>
   );

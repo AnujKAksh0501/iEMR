@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Users, CalendarDays, Pill, Package, FlaskConical,
-  UserCog, Receipt, Sparkles, LogOut, Activity, Menu, X, Bell, Code2, BookOpen,
+  UserCog, Receipt, Sparkles, LogOut, Activity, Menu, X, Bell, Code2, BookOpen, CreditCard, ShieldCheck,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -18,6 +18,8 @@ const NAV = [
   { to: "/app/assistant", label: "AI Assistant", icon: Sparkles, id: "assistant" },
   { to: "/app/automation", label: "Automation", icon: Bell, id: "automation" },
   { to: "/app/developer", label: "Developer API", icon: Code2, id: "developer" },
+  { to: "/app/subscription", label: "Subscription", icon: CreditCard, id: "subscription" },
+  { to: "/app/compliance", label: "Compliance", icon: ShieldCheck, id: "compliance" },
   { to: "/app/docs", label: "Documentation", icon: BookOpen, id: "docs" },
 ];
 

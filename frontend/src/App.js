@@ -19,6 +19,9 @@ import Docs from "@/pages/Docs";
 import PaymentSuccess from "@/pages/PaymentSuccess";
 import PortalLogin from "@/pages/portal/PortalLogin";
 import PortalHome from "@/pages/portal/PortalHome";
+import Subscription from "@/pages/Subscription";
+import Compliance from "@/pages/Compliance";
+import { Terms, Privacy } from "@/pages/Legal";
 
 function Protected({ children }) {
   const { user } = useAuth();
@@ -47,8 +50,12 @@ function App() {
             <Route path="assistant" element={<Assistant />} />
             <Route path="automation" element={<Automation />} />
             <Route path="developer" element={<Developer />} />
+            <Route path="subscription" element={<Subscription />} />
+            <Route path="compliance" element={<Compliance />} />
             <Route path="docs" element={<Docs />} />
           </Route>
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/privacy" element={<Privacy />} />
           <Route path="/payment/success" element={<Protected><PaymentSuccess /></Protected>} />
           <Route path="/portal/login" element={<PortalLogin />} />
           <Route path="/portal" element={<PortalHome />} />

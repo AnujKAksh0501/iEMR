@@ -82,6 +82,110 @@ def require_roles(*roles):
         return user
     return checker
 
+# ---------- security / compliance / plans (market-ready hardening) ----------
+PASSWORD_MIN = 8
+def validate_password(pw: str):
+    if not pw or len(pw) < PASSWORD_MIN:
+        raise HTTPException(400, f"Password must be at least {PASSWORD_MIN} characters")
+    if not (any(c.isupper() for c in pw) and any(c.islower() for c in pw) and any(c.isdigit() for c in pw)):
+        raise HTTPException(400, "Password must include upper and lower case letters and a number")
+
+MAX_LOGIN_FAILS = 5
+LOCKOUT_MINUTES = 15
+async def check_lockout(email: str):
+    rec = await db.login_attempts.find_one({"email": email})
+    if rec and rec.get("locked_until"):
+        try:
+            lu = datetime.fromisoformat(rec["locked_until"])
+        except Exception:
+            lu = None
+        if lu and lu > datetime.now(timezone.utc):
+            raise HTTPException(429, "Too many failed attempts. Please try again later.")
+
+async def record_login_fail(email: str):
+    rec = await db.login_attempts.find_one({"email": email})
+    fails = (rec.get("fails", 0) if rec else 0) + 1
+    upd = {"email": email, "fails": fails, "updated_at": now_iso()}
+    if fails >= MAX_LOGIN_FAILS:
+        upd["locked_until"] = (datetime.now(timezone.utc) + timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
+        upd["fails"] = 0
+    await db.login_attempts.update_one({"email": email}, {"$set": upd}, upsert=True)
+
+async def clear_login_fails(email: str):
+    await db.login_attempts.delete_one({"email": email})
+
+def client_ip(request: Request) -> str:
+    return (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or (request.client.host if request.client else "unknown"))
+
+async def audit(actor, tenant_id, action, resource, resource_id=None, ip=None, meta=None):
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()), "actor": actor, "tenant_id": tenant_id, "action": action,
+        "resource": resource, "resource_id": resource_id, "ip": ip,
+        "meta": meta or {}, "created_at": now_iso()})
+
+_BLOCKED_KEYS = {"_id", "tenant_id", "id", "password_hash", "key_hash", "role"}
+def sanitize_payload(body) -> dict:
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Invalid payload")
+    if len(body) > 60:
+        raise HTTPException(400, "Too many fields in payload")
+    out = {}
+    for k, v in body.items():
+        if not isinstance(k, str) or k in _BLOCKED_KEYS or k.startswith("$") or "." in k:
+            continue
+        if isinstance(v, str) and len(v) > 20000:
+            raise HTTPException(400, f"Field '{k}' exceeds maximum length")
+        out[k] = v
+    return out
+
+# Pluggable AI providers — connect any LLM by choosing a provider + key.
+AI_PROVIDERS = {
+    "emergent": ["model"],
+    "openai": ["api_key", "model"],
+    "anthropic": ["api_key", "model"],
+    "gemini": ["api_key", "model"],
+}
+AI_DEFAULT_MODELS = {"emergent": "gpt-5.4", "openai": "gpt-5.4",
+                     "anthropic": "claude-sonnet-4-6", "gemini": "gemini-3-flash"}
+def resolve_ai_cfg(integ):
+    cfg = (integ or {}).get("ai") or {}
+    provider = cfg.get("provider") or "emergent"
+    model = cfg.get("model") or AI_DEFAULT_MODELS.get(provider, "gpt-5.4")
+    if provider == "emergent":
+        return {"provider": "openai", "api_key": EMERGENT_LLM_KEY, "model": model, "display": "emergent"}
+    key = cfg.get("api_key")
+    if not key:  # provider chosen but no key yet → fall back to managed key
+        return {"provider": "openai", "api_key": EMERGENT_LLM_KEY, "model": AI_DEFAULT_MODELS["emergent"], "display": "emergent"}
+    return {"provider": provider, "api_key": key, "model": model, "display": provider}
+
+# SaaS subscription plans (bill the clinics).
+PLANS = {
+    "free": {"id": "free", "name": "Free", "price": 0, "max_staff": 3, "max_patients": 50},
+    "starter": {"id": "starter", "name": "Starter", "price": 49, "max_staff": 10, "max_patients": 1000},
+    "pro": {"id": "pro", "name": "Pro", "price": 199, "max_staff": 100, "max_patients": 100000},
+}
+async def get_subscription(tenant_id: str) -> dict:
+    sub = await db.subscriptions.find_one({"tenant_id": tenant_id})
+    if not sub:
+        sub = {"tenant_id": tenant_id, "plan": "free", "status": "active", "created_at": now_iso()}
+        await db.subscriptions.insert_one(dict(sub))
+    return clean(dict(sub))
+
+async def enforce_limit(tenant_id: str, kind: str):
+    sub = await get_subscription(tenant_id)
+    plan = PLANS.get(sub.get("plan", "free"), PLANS["free"])
+    if kind == "staff" and await db.users.count_documents({"tenant_id": tenant_id}) >= plan["max_staff"]:
+        raise HTTPException(402, f"Your {plan['name']} plan allows {plan['max_staff']} staff members. Upgrade to add more.")
+    if kind == "patients" and await db.patients.count_documents({"tenant_id": tenant_id}) >= plan["max_patients"]:
+        raise HTTPException(402, f"Your {plan['name']} plan allows {plan['max_patients']} patients. Upgrade to add more.")
+
+async def link_patient_id(coll: str, doc: dict, tenant_id: str):
+    if coll in ("appointments", "prescriptions", "labtests", "invoices") and doc.get("patient") and not doc.get("patient_id"):
+        p = await db.patients.find_one({"name": doc.get("patient"), "tenant_id": tenant_id})
+        if p:
+            doc["patient_id"] = p["id"]
+
 # ---------- models ----------
 class RegisterIn(BaseModel):
     email: EmailStr
@@ -113,24 +217,33 @@ class CheckoutIn(BaseModel):
 
 # ---------- auth ----------
 @api.post("/auth/register")
-async def register(body: RegisterIn):
+async def register(body: RegisterIn, request: Request):
+    validate_password(body.password)
     email = body.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
     tenant_id = str(uuid.uuid4())
     await db.tenants.insert_one({"id": tenant_id, "name": body.clinic_name, "created_at": now_iso()})
+    await db.subscriptions.insert_one({"tenant_id": tenant_id, "plan": "free", "status": "active", "created_at": now_iso()})
     uid = str(uuid.uuid4())
     user = {"id": uid, "email": email, "password_hash": hash_password(body.password),
             "name": body.name, "role": "clinic_admin", "tenant_id": tenant_id,
             "clinic_name": body.clinic_name, "created_at": now_iso(), "auth": "jwt"}
     await db.users.insert_one(dict(user))
+    await audit(email, tenant_id, "register", "user", uid, client_ip(request))
     return {"token": create_token(uid), "user": clean(dict(user))}
 
 @api.post("/auth/login")
-async def login(body: LoginIn):
-    user = await db.users.find_one({"email": body.email.lower()})
+async def login(body: LoginIn, request: Request):
+    email = body.email.lower()
+    await check_lockout(email)
+    user = await db.users.find_one({"email": email})
     if not user or not verify_password(body.password, user.get("password_hash", "")):
+        await record_login_fail(email)
+        await audit(email, (user or {}).get("tenant_id"), "login_failed", "user", (user or {}).get("id"), client_ip(request))
         raise HTTPException(401, "Invalid email or password")
+    await clear_login_fails(email)
+    await audit(email, user["tenant_id"], "login", "user", user["id"], client_ip(request))
     return {"token": create_token(user["id"]), "user": clean(dict(user))}
 
 @api.post("/auth/google")
@@ -166,9 +279,11 @@ async def list_staff(user: dict = Depends(get_current_user)):
     return [clean(dict(d)) for d in docs]
 
 @api.post("/staff")
-async def add_staff(body: StaffIn, user: dict = Depends(require_roles("clinic_admin", "super_admin"))):
+async def add_staff(body: StaffIn, request: Request, user: dict = Depends(require_roles("clinic_admin", "super_admin"))):
     if body.role not in ROLES:
         raise HTTPException(400, "Invalid role")
+    validate_password(body.password)
+    await enforce_limit(user["tenant_id"], "staff")
     email = body.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
@@ -177,13 +292,15 @@ async def add_staff(body: StaffIn, user: dict = Depends(require_roles("clinic_ad
            "name": body.name, "role": body.role, "tenant_id": user["tenant_id"],
            "clinic_name": user.get("clinic_name"), "created_at": now_iso(), "auth": "jwt"}
     await db.users.insert_one(dict(doc))
+    await audit(user["email"], user["tenant_id"], "create", "staff", uid, client_ip(request), {"role": body.role})
     return clean(dict(doc))
 
 @api.delete("/staff/{sid}")
-async def del_staff(sid: str, user: dict = Depends(require_roles("clinic_admin", "super_admin"))):
+async def del_staff(sid: str, request: Request, user: dict = Depends(require_roles("clinic_admin", "super_admin"))):
     if sid == user["id"]:
         raise HTTPException(400, "Cannot delete yourself")
     await db.users.delete_one({"id": sid, "tenant_id": user["tenant_id"]})
+    await audit(user["email"], user["tenant_id"], "delete", "staff", sid, client_ip(request))
     return {"ok": True}
 
 # ---------- notifications / automation ----------
@@ -346,29 +463,35 @@ def register_crud(name: str, coll: str, on_create=None, on_update=None):
         return [clean(dict(d)) for d in docs]
 
     @api.post(f"/{name}")
-    async def _create(body: dict, user: dict = Depends(get_current_user), coll=coll):
-        doc = dict(body)
+    async def _create(body: dict, request: Request, user: dict = Depends(get_current_user), coll=coll):
+        doc = sanitize_payload(body)
+        if coll == "patients":
+            await enforce_limit(user["tenant_id"], "patients")
         doc["id"] = str(uuid.uuid4())
         doc["tenant_id"] = user["tenant_id"]
         doc["created_by"] = user["name"]
         doc["created_at"] = now_iso()
+        await link_patient_id(coll, doc, user["tenant_id"])
         await db[coll].insert_one(dict(doc))
+        await audit(user["email"], user["tenant_id"], "create", coll, doc["id"], client_ip(request))
         if on_create:
             await on_create(user, doc)
         return clean(dict(doc))
 
     @api.put(f"/{name}/{{item_id}}")
-    async def _update(item_id: str, body: dict, user: dict = Depends(get_current_user), coll=coll):
-        body.pop("id", None); body.pop("_id", None); body.pop("tenant_id", None)
-        await db[coll].update_one({"id": item_id, "tenant_id": user["tenant_id"]}, {"$set": body})
+    async def _update(item_id: str, body: dict, request: Request, user: dict = Depends(get_current_user), coll=coll):
+        upd = sanitize_payload(body)
+        await db[coll].update_one({"id": item_id, "tenant_id": user["tenant_id"]}, {"$set": upd})
         doc = await db[coll].find_one({"id": item_id, "tenant_id": user["tenant_id"]})
+        await audit(user["email"], user["tenant_id"], "update", coll, item_id, client_ip(request))
         if on_update and doc:
             await on_update(user, dict(doc))
         return clean(dict(doc))
 
     @api.delete(f"/{name}/{{item_id}}")
-    async def _delete(item_id: str, user: dict = Depends(get_current_user), coll=coll):
+    async def _delete(item_id: str, request: Request, user: dict = Depends(get_current_user), coll=coll):
         await db[coll].delete_one({"id": item_id, "tenant_id": user["tenant_id"]})
+        await audit(user["email"], user["tenant_id"], "delete", coll, item_id, client_ip(request))
         return {"ok": True}
 
 async def _appt_created(user, doc):
@@ -436,15 +559,17 @@ async def list_invoices(user: dict = Depends(get_current_user)):
     return [clean(dict(d)) for d in docs]
 
 @api.post("/invoices")
-async def create_invoice(body: dict, user: dict = Depends(get_current_user)):
-    doc = dict(body)
+async def create_invoice(body: dict, request: Request, user: dict = Depends(get_current_user)):
+    doc = sanitize_payload(body)
     doc["id"] = str(uuid.uuid4())
     doc["tenant_id"] = user["tenant_id"]
     doc["amount"] = float(body.get("amount", 0) or 0)
     doc["payment_status"] = "pending"
     doc["status"] = "unpaid"
     doc["created_at"] = now_iso()
+    await link_patient_id("invoices", doc, user["tenant_id"])
     await db.invoices.insert_one(dict(doc))
+    await audit(user["email"], user["tenant_id"], "create", "invoices", doc["id"], client_ip(request))
     pt = await db.patients.find_one({"name": doc.get("patient"), "tenant_id": user["tenant_id"]})
     await notify(user["tenant_id"], "invoice_created",
                  (pt or {}).get("email"), (pt or {}).get("phone"),
@@ -496,15 +621,19 @@ async def payment_status(session_id: str):
                 await db.payment_transactions.update_one(
                     {"session_id": session_id, "payment_status": {"$ne": "paid"}},
                     {"$set": {"status": "completed", "payment_status": "paid", "updated_at": now_iso()}})
-                await db.invoices.update_one({"id": rec["invoice_id"]},
-                    {"$set": {"payment_status": "paid", "status": "paid", "paid_at": now_iso()}})
-                inv = await db.invoices.find_one({"id": rec["invoice_id"]})
-                if inv:
-                    pt = await db.patients.find_one({"name": inv.get("patient"), "tenant_id": inv.get("tenant_id")})
-                    await notify(inv.get("tenant_id"), "payment_received",
-                                 (pt or {}).get("email"), (pt or {}).get("phone"),
-                                 "Payment Received",
-                                 f"We have received your payment of ${inv.get('amount',0)}. Thank you!")
+                if rec.get("kind") == "subscription":
+                    await db.subscriptions.update_one({"tenant_id": rec["tenant_id"]},
+                        {"$set": {"plan": rec.get("plan", "free"), "status": "active", "updated_at": now_iso()}}, upsert=True)
+                else:
+                    await db.invoices.update_one({"id": rec["invoice_id"]},
+                        {"$set": {"payment_status": "paid", "status": "paid", "paid_at": now_iso()}})
+                    inv = await db.invoices.find_one({"id": rec["invoice_id"]})
+                    if inv:
+                        pt = await db.patients.find_one({"name": inv.get("patient"), "tenant_id": inv.get("tenant_id")})
+                        await notify(inv.get("tenant_id"), "payment_received",
+                                     (pt or {}).get("email"), (pt or {}).get("phone"),
+                                     "Payment Received",
+                                     f"We have received your payment of ${inv.get('amount',0)}. Thank you!")
                 rec = await db.payment_transactions.find_one({"session_id": session_id})
         except Exception as e:
             logger.warning(f"stripe status err: {e}")
@@ -521,7 +650,11 @@ async def stripe_webhook(request: Request):
             await db.payment_transactions.update_one(
                 {"session_id": resp.session_id, "payment_status": {"$ne": "paid"}},
                 {"$set": {"status": "completed", "payment_status": "paid", "updated_at": now_iso()}})
-            inv_id = (resp.metadata or {}).get("invoice_id")
+            meta = resp.metadata or {}
+            if meta.get("kind") == "subscription" and meta.get("tenant_id"):
+                await db.subscriptions.update_one({"tenant_id": meta["tenant_id"]},
+                    {"$set": {"plan": meta.get("plan", "free"), "status": "active", "updated_at": now_iso()}}, upsert=True)
+            inv_id = meta.get("invoice_id")
             if inv_id:
                 await db.invoices.update_one({"id": inv_id},
                     {"$set": {"payment_status": "paid", "status": "paid", "paid_at": now_iso()}})
@@ -533,22 +666,32 @@ async def stripe_webhook(request: Request):
 @api.post("/assistant/chat")
 async def assistant_chat(body: ChatIn, user: dict = Depends(get_current_user)):
     sid = body.session_id or str(uuid.uuid4())
-    sys = ("You are MedAssist, an AI clinical assistant embedded in an EMR used by clinicians. "
-           "Help with clinical note summaries, differential diagnoses, drug interactions, and documentation. "
-           "Be concise and evidence-based. Always add a brief disclaimer that outputs need clinician review "
-           "for critical decisions. Never fabricate patient data.")
-    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=sid, system_message=sys).with_model("openai", "gpt-5.4")
+    st = await get_settings(user["tenant_id"])
+    ai = resolve_ai_cfg(st.get("integrations", {}))
+    sys = ("You are MedAssist, an AI clinical assistant embedded in an EMR used by licensed clinicians. "
+           "Help with clinical note summaries, differential considerations, drug-interaction awareness, and documentation. "
+           "You are informational decision-support ONLY and are NOT a medical device; you do not provide definitive "
+           "diagnoses or treatment orders. Always recommend independent clinician verification for any clinical decision, "
+           "flag red-flag/emergency symptoms, and never fabricate patient data. Keep responses concise and evidence-based, "
+           "and end with: 'For clinician review — verify before acting.'")
+    chat = LlmChat(api_key=ai["api_key"], session_id=sid, system_message=sys).with_model(ai["provider"], ai["model"])
     text = body.message + (f"\n\nClinical context:\n{body.context}" if body.context else "")
     reply = ""
-    async for ev in chat.stream_message(UserMessage(text=text)):
-        if isinstance(ev, TextDelta):
-            reply += ev.content
-        elif isinstance(ev, StreamDone):
-            break
+    try:
+        async for ev in chat.stream_message(UserMessage(text=text)):
+            if isinstance(ev, TextDelta):
+                reply += ev.content
+            elif isinstance(ev, StreamDone):
+                break
+    except Exception as e:
+        logger.warning(f"AI error: {e}")
+        raise HTTPException(502, "AI provider error. Check your AI integration settings/key.")
     await db.chat_messages.insert_one({"id": str(uuid.uuid4()), "tenant_id": user["tenant_id"],
         "user_id": user["id"], "session_id": sid, "message": body.message, "reply": reply,
-        "created_at": now_iso()})
-    return {"reply": reply, "session_id": sid}
+        "provider": ai["display"], "model": ai["model"], "created_at": now_iso()})
+    await audit(user["email"], user["tenant_id"], "ai_query", "assistant", sid, None,
+                {"provider": ai["display"], "model": ai["model"]})
+    return {"reply": reply, "session_id": sid, "provider": ai["display"], "model": ai["model"]}
 
 # ---------- API keys (developer) ----------
 @api.get("/apikeys")
@@ -679,7 +822,10 @@ async def get_integrations(user: dict = Depends(get_current_user)):
                   "config": _mask_cfg(integ.get("email")), "configured": email_configured_for(integ)},
         "whatsapp": {"provider": (integ.get("whatsapp") or {}).get("provider"),
                      "config": _mask_cfg(integ.get("whatsapp")), "configured": whatsapp_configured_for(integ)},
+        "ai": {"provider": (integ.get("ai") or {}).get("provider") or "emergent",
+               "config": _mask_cfg(integ.get("ai")), "configured": True},
         "email_providers": EMAIL_PROVIDERS, "whatsapp_providers": WHATSAPP_PROVIDERS,
+        "ai_providers": AI_PROVIDERS, "ai_default_models": AI_DEFAULT_MODELS,
         "secret_fields": sorted(SECRET_FIELDS),
     }
 
@@ -687,7 +833,7 @@ async def get_integrations(user: dict = Depends(get_current_user)):
 async def put_integrations(body: dict, user: dict = Depends(require_roles("clinic_admin", "super_admin"))):
     st = await get_settings(user["tenant_id"])
     integ = st.get("integrations", {}) or {}
-    for channel in ("email", "whatsapp"):
+    for channel in ("email", "whatsapp", "ai"):
         if channel in body:
             incoming = body[channel] or {}
             merged = dict(integ.get(channel, {}) or {})
@@ -731,11 +877,15 @@ async def get_current_patient(request: Request) -> dict:
 async def portal_login(body: PortalLoginIn):
     email = body.email.lower().strip()
     phone = body.phone.strip()
+    await check_lockout(f"portal:{email}")
     pt = await db.patients.find_one({
         "email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}, "phone": phone})
     if not pt:
+        await record_login_fail(f"portal:{email}")
         raise HTTPException(401, "No matching patient record. Please confirm the email and phone your clinic has on file.")
+    await clear_login_fails(f"portal:{email}")
     tenant = await db.tenants.find_one({"id": pt["tenant_id"]})
+    await audit(email, pt["tenant_id"], "portal_login", "patient", pt["id"])
     return {"token": create_patient_token(pt["id"], pt["tenant_id"]),
             "patient": clean(dict(pt)), "clinic": (tenant or {}).get("name")}
 
@@ -744,20 +894,121 @@ async def portal_me(pt: dict = Depends(get_current_patient)):
     tenant = await db.tenants.find_one({"id": pt["tenant_id"]})
     return {"patient": pt, "clinic": (tenant or {}).get("name")}
 
+def _portal_match(pt):
+    # Prefer patient_id linkage; only fall back to name for legacy records lacking an id.
+    return {"tenant_id": pt["tenant_id"], "$or": [
+        {"patient_id": pt["id"]},
+        {"patient_id": {"$exists": False}, "patient": pt["name"]}]}
+
 @api.get("/portal/appointments")
 async def portal_appointments(pt: dict = Depends(get_current_patient)):
-    docs = await db.appointments.find({"tenant_id": pt["tenant_id"], "patient": pt["name"]}).sort("created_at", -1).to_list(1000)
+    docs = await db.appointments.find(_portal_match(pt)).sort("created_at", -1).to_list(1000)
     return [clean(dict(d)) for d in docs]
 
 @api.get("/portal/prescriptions")
 async def portal_prescriptions(pt: dict = Depends(get_current_patient)):
-    docs = await db.prescriptions.find({"tenant_id": pt["tenant_id"], "patient": pt["name"]}).sort("created_at", -1).to_list(1000)
+    docs = await db.prescriptions.find(_portal_match(pt)).sort("created_at", -1).to_list(1000)
     return [clean(dict(d)) for d in docs]
 
 @api.get("/portal/invoices")
 async def portal_invoices(pt: dict = Depends(get_current_patient)):
-    docs = await db.invoices.find({"tenant_id": pt["tenant_id"], "patient": pt["name"]}).sort("created_at", -1).to_list(1000)
+    docs = await db.invoices.find(_portal_match(pt)).sort("created_at", -1).to_list(1000)
     return [clean(dict(d)) for d in docs]
+
+# ---------- SaaS subscription, compliance & account recovery ----------
+class ResetReqIn(BaseModel):
+    email: EmailStr
+
+class ResetConfirmIn(BaseModel):
+    token: str
+    password: str
+
+@api.get("/subscription")
+async def subscription_get(user: dict = Depends(get_current_user)):
+    sub = await get_subscription(user["tenant_id"])
+    plan = PLANS.get(sub.get("plan", "free"), PLANS["free"])
+    staff = await db.users.count_documents({"tenant_id": user["tenant_id"]})
+    patients = await db.patients.count_documents({"tenant_id": user["tenant_id"]})
+    return {"subscription": sub, "plan": plan, "plans": PLANS, "usage": {"staff": staff, "patients": patients}}
+
+@api.post("/subscription/checkout")
+async def subscription_checkout(body: dict, request: Request, user: dict = Depends(require_roles("clinic_admin", "super_admin"))):
+    plan_id = body.get("plan")
+    if plan_id not in PLANS or PLANS[plan_id]["price"] <= 0:
+        raise HTTPException(400, "Invalid plan selection")
+    origin = (body.get("origin_url") or str(request.base_url)).rstrip("/")
+    sc = StripeCheckout(api_key=os.environ["STRIPE_API_KEY"], webhook_url=f"{str(request.base_url)}api/webhook/stripe")
+    req = CheckoutSessionRequest(
+        amount=float(PLANS[plan_id]["price"]), currency="usd",
+        success_url=f"{origin}/payment/success?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{origin}/app/subscription",
+        metadata={"kind": "subscription", "plan": plan_id, "tenant_id": user["tenant_id"]})
+    session = await sc.create_checkout_session(req)
+    await db.payment_transactions.insert_one({"id": str(uuid.uuid4()), "session_id": session.session_id,
+        "kind": "subscription", "plan": plan_id, "tenant_id": user["tenant_id"],
+        "amount": float(PLANS[plan_id]["price"]), "currency": "usd", "status": "initiated",
+        "payment_status": "pending", "created_at": now_iso(), "updated_at": now_iso()})
+    await audit(user["email"], user["tenant_id"], "subscription_checkout", "subscription", plan_id, client_ip(request))
+    return {"checkout_url": session.url, "session_id": session.session_id}
+
+@api.get("/audit-logs")
+async def list_audit_logs(user: dict = Depends(require_roles("clinic_admin", "super_admin"))):
+    docs = await db.audit_logs.find({"tenant_id": user["tenant_id"]}).sort("created_at", -1).to_list(500)
+    return [clean(dict(d)) for d in docs]
+
+@api.get("/compliance/export")
+async def compliance_export(user: dict = Depends(require_roles("clinic_admin", "super_admin"))):
+    t = user["tenant_id"]; out = {}
+    for c in ["patients", "appointments", "prescriptions", "labtests", "medications", "invoices"]:
+        docs = await db[c].find({"tenant_id": t}).to_list(100000)
+        out[c] = [clean(dict(d)) for d in docs]
+    await audit(user["email"], t, "export", "tenant_data", t)
+    return out
+
+@api.delete("/compliance/patient/{pid}")
+async def compliance_delete_patient(pid: str, request: Request, user: dict = Depends(require_roles("clinic_admin", "super_admin"))):
+    pt = await db.patients.find_one({"id": pid, "tenant_id": user["tenant_id"]})
+    if not pt:
+        raise HTTPException(404, "Patient not found")
+    for c in ["appointments", "prescriptions", "labtests", "invoices"]:
+        await db[c].delete_many({"tenant_id": user["tenant_id"], "$or": [{"patient_id": pid}, {"patient": pt.get("name")}]})
+    await db.patients.delete_one({"id": pid, "tenant_id": user["tenant_id"]})
+    await audit(user["email"], user["tenant_id"], "erase", "patient", pid, client_ip(request))
+    return {"ok": True}
+
+@api.put("/patients/{pid}/consent")
+async def set_patient_consent(pid: str, body: dict, user: dict = Depends(get_current_user)):
+    await db.patients.update_one({"id": pid, "tenant_id": user["tenant_id"]},
+        {"$set": {"consent": bool(body.get("consent")), "consent_at": now_iso()}})
+    await audit(user["email"], user["tenant_id"], "consent", "patient", pid, None, {"consent": bool(body.get("consent"))})
+    return {"ok": True}
+
+@api.post("/auth/request-reset")
+async def request_password_reset(body: ResetReqIn):
+    user = await db.users.find_one({"email": body.email.lower()})
+    dev_token = None
+    if user:
+        token = secrets.token_urlsafe(32)
+        await db.password_resets.insert_one({"email": user["email"], "token": token,
+            "expires": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            "used": False, "created_at": now_iso()})
+        await notify(user["tenant_id"], "password_reset", user["email"], None,
+                     "Password reset code", f"Your password reset code is: {token}\nIt expires in 1 hour.")
+        st = await get_settings(user["tenant_id"])
+        if not email_configured_for(st.get("integrations", {})):
+            dev_token = token  # surfaced only when no email provider is configured yet
+    return {"ok": True, "dev_token": dev_token}
+
+@api.post("/auth/reset")
+async def confirm_password_reset(body: ResetConfirmIn):
+    validate_password(body.password)
+    rec = await db.password_resets.find_one({"token": body.token, "used": False})
+    if not rec or datetime.fromisoformat(rec["expires"]) < datetime.now(timezone.utc):
+        raise HTTPException(400, "Invalid or expired reset token")
+    await db.users.update_one({"email": rec["email"]}, {"$set": {"password_hash": hash_password(body.password)}})
+    await db.password_resets.update_one({"_id": rec["_id"]}, {"$set": {"used": True}})
+    await clear_login_fails(rec["email"])
+    return {"ok": True}
 
 # ---------- Scheduled reminders (platform cron) ----------
 async def _run_appointment_reminders():
@@ -832,13 +1083,30 @@ async def booking_widget_js():
 
 app.include_router(api)
 app.include_router(public_api)
-app.add_middleware(CORSMiddleware, allow_origin_regex=".*", allow_credentials=True,
-                   allow_methods=["*"], allow_headers=["*"])
+_cors = os.environ.get("CORS_ORIGINS", "*").strip()
+if _cors and _cors != "*":
+    _origins = [o.strip() for o in _cors.split(",") if o.strip()]
+    app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_credentials=True,
+                       allow_methods=["*"], allow_headers=["*"])
+else:
+    app.add_middleware(CORSMiddleware, allow_origin_regex=".*", allow_credentials=True,
+                       allow_methods=["*"], allow_headers=["*"])
+
+@app.get("/api/health")
+async def health():
+    try:
+        await db.command("ping")
+        return {"status": "ok", "db": "up"}
+    except Exception:
+        return {"status": "degraded", "db": "down"}
 
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
     await db.users.create_index("tenant_id")
+    await db.audit_logs.create_index([("tenant_id", 1), ("created_at", -1)])
+    await db.login_attempts.create_index("email", unique=True)
+    await db.password_resets.create_index("token")
     admin_email = os.environ["ADMIN_EMAIL"].lower()
     admin_pw = os.environ["ADMIN_PASSWORD"]
     existing = await db.users.find_one({"email": admin_email})

@@ -85,6 +85,11 @@ export default function Landing() {
             <span className="font-serif text-xl">MediCore</span>
           </div>
           <p className="text-sm text-primary-foreground/60">© 2026 MediCore. Enterprise EMR SaaS.</p>
+          <div className="flex gap-4 text-sm text-primary-foreground/70">
+            <Link to="/terms" className="hover:text-primary-foreground">Terms</Link>
+            <Link to="/privacy" className="hover:text-primary-foreground">Privacy</Link>
+            <Link to="/portal/login" className="hover:text-primary-foreground">Patient Portal</Link>
+          </div>
         </div>
       </footer>
     </div>

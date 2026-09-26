@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import axios from "axios";
 import { useAuth } from "@/context/AuthContext";
-import api, { formatApiError } from "@/lib/api";
+import api, { API, formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,8 @@ export default function Auth({ mode }) {
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: "", password: "", name: "", clinic_name: "" });
   const [loading, setLoading] = useState(false);
+  const [forgot, setForgot] = useState(null); // null | 'request' | 'confirm'
+  const [reset, setReset] = useState({ email: "", token: "", password: "" });
 
   useEffect(() => { if (user) navigate("/app"); }, [user, navigate]);
 
@@ -48,6 +51,26 @@ export default function Auth({ mode }) {
   const googleAuth = () => {
     const redirect = `${window.location.origin}/login`;
     window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirect)}`;
+  };
+
+  const requestReset = async () => {
+    try {
+      const r = await axios.post(`${API}/auth/request-reset`, { email: reset.email });
+      if (r.data.dev_token) {
+        setReset((s) => ({ ...s, token: r.data.dev_token }));
+        toast.info("Email not configured — reset code prefilled for you.");
+      } else {
+        toast.success("If that email exists, a reset code has been sent.");
+      }
+      setForgot("confirm");
+    } catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
+  };
+  const confirmReset = async () => {
+    try {
+      await axios.post(`${API}/auth/reset`, { token: reset.token, password: reset.password });
+      toast.success("Password updated. Please sign in.");
+      setForgot(null);
+    } catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
   };
 
   return (
@@ -112,6 +135,41 @@ export default function Auth({ mode }) {
               {loading ? "Please wait…" : isLogin ? "Sign in" : "Create clinic"}
             </Button>
           </form>
+
+          {isLogin && (
+            <button onClick={() => { setForgot("request"); setReset({ email: form.email, token: "", password: "" }); }}
+              className="mt-3 w-full text-center text-xs text-muted-foreground hover:text-primary" data-testid="forgot-password-link">
+              Forgot password?
+            </button>
+          )}
+
+          {forgot && (
+            <div className="mt-4 rounded-xl border border-border/70 bg-muted/30 p-4" data-testid="forgot-box">
+              {forgot === "request" ? (
+                <>
+                  <Label className="text-sm">Reset your password</Label>
+                  <Input className="mt-2" data-testid="reset-email" type="email" placeholder="Your account email"
+                    value={reset.email} onChange={(e) => setReset({ ...reset, email: e.target.value })} />
+                  <div className="mt-3 flex gap-2">
+                    <Button size="sm" onClick={requestReset} data-testid="reset-request-btn">Send reset code</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setForgot(null)}>Cancel</Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Label className="text-sm">Enter code & new password</Label>
+                  <Input className="mt-2" data-testid="reset-token" placeholder="Reset code"
+                    value={reset.token} onChange={(e) => setReset({ ...reset, token: e.target.value })} />
+                  <Input className="mt-2" data-testid="reset-password" type="password" placeholder="New password (8+ chars, mixed case & number)"
+                    value={reset.password} onChange={(e) => setReset({ ...reset, password: e.target.value })} />
+                  <div className="mt-3 flex gap-2">
+                    <Button size="sm" onClick={confirmReset} data-testid="reset-confirm-btn">Update password</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setForgot(null)}>Cancel</Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             {isLogin ? "New clinic?" : "Already have an account?"}{" "}
