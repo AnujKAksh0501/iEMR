@@ -190,6 +190,9 @@ async def del_staff(sid: str, user: dict = Depends(require_roles("clinic_admin",
 import smtplib
 import hashlib
 import secrets
+import hmac
+import asyncio
+import re
 from email.mime.text import MIMEText
 
 EVENTS = {
@@ -200,36 +203,101 @@ EVENTS = {
     "payment_received": "Payment Received",
 }
 
-def email_configured() -> bool:
-    return bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD"))
+# Pluggable provider schemas: swap any platform by supplying its keys.
+EMAIL_PROVIDERS = {
+    "smtp": ["host", "port", "username", "password", "from_email"],
+    "sendgrid": ["api_key", "from_email"],
+    "resend": ["api_key", "from_email"],
+    "mailgun": ["api_key", "domain", "from_email"],
+}
+WHATSAPP_PROVIDERS = {
+    "twilio": ["account_sid", "auth_token", "from_number"],
+    "meta": ["phone_number_id", "access_token"],
+}
+SECRET_FIELDS = {"password", "api_key", "auth_token", "access_token"}
 
-def whatsapp_configured() -> bool:
-    return bool(os.environ.get("TWILIO_ACCOUNT_SID") and os.environ.get("TWILIO_AUTH_TOKEN") and os.environ.get("TWILIO_WHATSAPP_FROM"))
+def _env_email_cfg():
+    if os.environ.get("SMTP_HOST") and os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD"):
+        return {"provider": "smtp", "host": os.environ["SMTP_HOST"], "port": os.environ.get("SMTP_PORT", "587"),
+                "username": os.environ["SMTP_USER"], "password": os.environ["SMTP_PASSWORD"],
+                "from_email": os.environ.get("SMTP_FROM") or os.environ["SMTP_USER"]}
+    return None
 
-def _send_email(to: str, subject: str, body: str):
-    host = os.environ["SMTP_HOST"]; port = int(os.environ.get("SMTP_PORT", "587"))
-    user = os.environ["SMTP_USER"]; pw = os.environ["SMTP_PASSWORD"]
-    sender = os.environ.get("SMTP_FROM") or user
-    msg = MIMEText(body, "plain"); msg["Subject"] = subject; msg["From"] = sender; msg["To"] = to
-    with smtplib.SMTP(host, port, timeout=15) as s:
-        s.starttls(); s.login(user, pw); s.sendmail(sender, [to], msg.as_string())
+def _env_wa_cfg():
+    if os.environ.get("TWILIO_ACCOUNT_SID") and os.environ.get("TWILIO_AUTH_TOKEN") and os.environ.get("TWILIO_WHATSAPP_FROM"):
+        return {"provider": "twilio", "account_sid": os.environ["TWILIO_ACCOUNT_SID"],
+                "auth_token": os.environ["TWILIO_AUTH_TOKEN"], "from_number": os.environ["TWILIO_WHATSAPP_FROM"]}
+    return None
 
-def _send_whatsapp(to: str, body: str):
-    sid = os.environ["TWILIO_ACCOUNT_SID"]; token = os.environ["TWILIO_AUTH_TOKEN"]
-    frm = os.environ["TWILIO_WHATSAPP_FROM"]
-    to_wa = to if str(to).startswith("whatsapp:") else f"whatsapp:{to}"
-    frm_wa = frm if str(frm).startswith("whatsapp:") else f"whatsapp:{frm}"
-    r = requests.post(f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
-                      data={"From": frm_wa, "To": to_wa, "Body": body}, auth=(sid, token), timeout=15)
-    r.raise_for_status()
+def _cfg_complete(cfg, providers):
+    if not cfg:
+        return False
+    p = cfg.get("provider")
+    return bool(p in providers and all(cfg.get(f) for f in providers[p]))
+
+def resolve_email_cfg(integ):
+    cfg = (integ or {}).get("email")
+    return cfg if _cfg_complete(cfg, EMAIL_PROVIDERS) else _env_email_cfg()
+
+def resolve_whatsapp_cfg(integ):
+    cfg = (integ or {}).get("whatsapp")
+    return cfg if _cfg_complete(cfg, WHATSAPP_PROVIDERS) else _env_wa_cfg()
+
+def email_configured_for(integ):
+    return resolve_email_cfg(integ) is not None
+
+def whatsapp_configured_for(integ):
+    return resolve_whatsapp_cfg(integ) is not None
+
+def send_email_via(cfg, to, subject, body):
+    p = cfg["provider"]
+    if p == "smtp":
+        sender = cfg.get("from_email") or cfg["username"]
+        msg = MIMEText(body, "plain"); msg["Subject"] = subject; msg["From"] = sender; msg["To"] = to
+        with smtplib.SMTP(cfg["host"], int(cfg.get("port", 587)), timeout=15) as s:
+            s.starttls(); s.login(cfg["username"], cfg["password"]); s.sendmail(sender, [to], msg.as_string())
+    elif p == "sendgrid":
+        r = requests.post("https://api.sendgrid.com/v3/mail/send",
+            headers={"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"},
+            json={"personalizations": [{"to": [{"email": to}]}], "from": {"email": cfg["from_email"]},
+                  "subject": subject, "content": [{"type": "text/plain", "value": body}]}, timeout=15)
+        r.raise_for_status()
+    elif p == "resend":
+        r = requests.post("https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {cfg['api_key']}"},
+            json={"from": cfg["from_email"], "to": [to], "subject": subject, "text": body}, timeout=15)
+        r.raise_for_status()
+    elif p == "mailgun":
+        r = requests.post(f"https://api.mailgun.net/v3/{cfg['domain']}/messages",
+            auth=("api", cfg["api_key"]),
+            data={"from": cfg["from_email"], "to": to, "subject": subject, "text": body}, timeout=15)
+        r.raise_for_status()
+
+def send_whatsapp_via(cfg, to, body):
+    p = cfg["provider"]
+    if p == "twilio":
+        frm = cfg["from_number"]
+        to_wa = to if str(to).startswith("whatsapp:") else f"whatsapp:{to}"
+        frm_wa = frm if str(frm).startswith("whatsapp:") else f"whatsapp:{frm}"
+        r = requests.post(f"https://api.twilio.com/2010-04-01/Accounts/{cfg['account_sid']}/Messages.json",
+            data={"From": frm_wa, "To": to_wa, "Body": body}, auth=(cfg["account_sid"], cfg["auth_token"]), timeout=15)
+        r.raise_for_status()
+    elif p == "meta":
+        to_num = str(to).replace("whatsapp:", "").lstrip("+")
+        r = requests.post(f"https://graph.facebook.com/v20.0/{cfg['phone_number_id']}/messages",
+            headers={"Authorization": f"Bearer {cfg['access_token']}"},
+            json={"messaging_product": "whatsapp", "to": to_num, "type": "text", "text": {"body": body}}, timeout=15)
+        r.raise_for_status()
 
 async def get_settings(tenant_id: str) -> dict:
     s = await db.tenant_settings.find_one({"tenant_id": tenant_id})
     if not s:
         s = {"tenant_id": tenant_id, "events": {k: True for k in EVENTS},
-             "channels": {"email": True, "whatsapp": True}}
+             "channels": {"email": True, "whatsapp": True}, "integrations": {}}
         await db.tenant_settings.insert_one(dict(s))
-    return clean(dict(s))
+    s = clean(dict(s))
+    s.setdefault("integrations", {})
+    return s
 
 async def log_notification(tenant_id, channel, to, subject, body, status, event):
     await db.notifications.insert_one({"id": str(uuid.uuid4()), "tenant_id": tenant_id,
@@ -241,15 +309,18 @@ async def notify(tenant_id, event, to_email, to_phone, subject, body):
     if not st.get("events", {}).get(event, True):
         return
     ch = st.get("channels", {})
+    integ = st.get("integrations", {})
     if ch.get("email", True) and to_email:
-        if email_configured():
-            try: _send_email(to_email, subject, body); status = "sent"
+        cfg = resolve_email_cfg(integ)
+        if cfg:
+            try: send_email_via(cfg, to_email, subject, body); status = "sent"
             except Exception as e: status = f"failed: {e}"[:180]
         else: status = "skipped_not_configured"
         await log_notification(tenant_id, "email", to_email, subject, body, status, event)
     if ch.get("whatsapp", True) and to_phone:
-        if whatsapp_configured():
-            try: _send_whatsapp(to_phone, f"{subject}\n\n{body}"); status = "sent"
+        cfg = resolve_whatsapp_cfg(integ)
+        if cfg:
+            try: send_whatsapp_via(cfg, to_phone, f"{subject}\n\n{body}"); status = "sent"
             except Exception as e: status = f"failed: {e}"[:180]
         else: status = "skipped_not_configured"
         await log_notification(tenant_id, "whatsapp", to_phone, subject, body, status, event)
@@ -510,7 +581,8 @@ async def list_notifications(user: dict = Depends(get_current_user)):
 @api.get("/notifications/status")
 async def notif_status(user: dict = Depends(get_current_user)):
     st = await get_settings(user["tenant_id"])
-    return {"email_configured": email_configured(), "whatsapp_configured": whatsapp_configured(),
+    integ = st.get("integrations", {})
+    return {"email_configured": email_configured_for(integ), "whatsapp_configured": whatsapp_configured_for(integ),
             "events": st.get("events", {}), "channels": st.get("channels", {}),
             "available_events": EVENTS}
 
@@ -527,7 +599,8 @@ async def test_notification(body: dict, user: dict = Depends(get_current_user)):
     await notify(user["tenant_id"], "appointment_booked", body.get("email"), body.get("phone"),
                  f"Test message - {user.get('clinic_name','')}",
                  "This is a test notification from your MediCore automation settings.")
-    return {"ok": True, "email_configured": email_configured(), "whatsapp_configured": whatsapp_configured()}
+    st = await get_settings(user["tenant_id"]); integ = st.get("integrations", {})
+    return {"ok": True, "email_configured": email_configured_for(integ), "whatsapp_configured": whatsapp_configured_for(integ)}
 
 # ---------- PUBLIC API (external website integration, X-API-Key auth) ----------
 public_api = APIRouter(prefix="/api/public")
@@ -590,6 +663,172 @@ async def pub_update_appt(aid: str, body: dict, request: Request):
     body.pop("id", None); body.pop("_id", None); body.pop("tenant_id", None)
     await db.appointments.update_one({"id": aid, "tenant_id": t}, {"$set": body})
     return clean(dict(await db.appointments.find_one({"id": aid, "tenant_id": t})))
+
+# ---------- pluggable integrations config ----------
+def _mask_cfg(cfg):
+    if not cfg:
+        return {}
+    return {k: ("********" if (k in SECRET_FIELDS and v) else v) for k, v in cfg.items()}
+
+@api.get("/integrations")
+async def get_integrations(user: dict = Depends(get_current_user)):
+    st = await get_settings(user["tenant_id"])
+    integ = st.get("integrations", {})
+    return {
+        "email": {"provider": (integ.get("email") or {}).get("provider"),
+                  "config": _mask_cfg(integ.get("email")), "configured": email_configured_for(integ)},
+        "whatsapp": {"provider": (integ.get("whatsapp") or {}).get("provider"),
+                     "config": _mask_cfg(integ.get("whatsapp")), "configured": whatsapp_configured_for(integ)},
+        "email_providers": EMAIL_PROVIDERS, "whatsapp_providers": WHATSAPP_PROVIDERS,
+        "secret_fields": sorted(SECRET_FIELDS),
+    }
+
+@api.put("/integrations")
+async def put_integrations(body: dict, user: dict = Depends(require_roles("clinic_admin", "super_admin"))):
+    st = await get_settings(user["tenant_id"])
+    integ = st.get("integrations", {}) or {}
+    for channel in ("email", "whatsapp"):
+        if channel in body:
+            incoming = body[channel] or {}
+            merged = dict(integ.get(channel, {}) or {})
+            # keep existing secret when the UI sends the masked placeholder back
+            for k, v in incoming.items():
+                if k in SECRET_FIELDS and v == "********":
+                    continue
+                merged[k] = v
+            integ[channel] = merged
+    await db.tenant_settings.update_one({"tenant_id": user["tenant_id"]},
+                                        {"$set": {"integrations": integ}}, upsert=True)
+    return {"ok": True}
+
+# ---------- Patient Portal ----------
+class PortalLoginIn(BaseModel):
+    email: EmailStr
+    phone: str
+
+def create_patient_token(pid: str, tenant_id: str) -> str:
+    payload = {"sub": pid, "tenant_id": tenant_id, "type": "patient",
+               "exp": datetime.now(timezone.utc) + timedelta(days=7)}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
+async def get_current_patient(request: Request) -> dict:
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else None
+    if not token:
+        raise HTTPException(401, "Not authenticated")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except jwt.InvalidTokenError:
+        raise HTTPException(401, "Invalid token")
+    if payload.get("type") != "patient":
+        raise HTTPException(401, "Not a patient session")
+    pt = await db.patients.find_one({"id": payload["sub"], "tenant_id": payload["tenant_id"]})
+    if not pt:
+        raise HTTPException(401, "Patient not found")
+    return clean(dict(pt))
+
+@api.post("/portal/login")
+async def portal_login(body: PortalLoginIn):
+    email = body.email.lower().strip()
+    phone = body.phone.strip()
+    pt = await db.patients.find_one({
+        "email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}, "phone": phone})
+    if not pt:
+        raise HTTPException(401, "No matching patient record. Please confirm the email and phone your clinic has on file.")
+    tenant = await db.tenants.find_one({"id": pt["tenant_id"]})
+    return {"token": create_patient_token(pt["id"], pt["tenant_id"]),
+            "patient": clean(dict(pt)), "clinic": (tenant or {}).get("name")}
+
+@api.get("/portal/me")
+async def portal_me(pt: dict = Depends(get_current_patient)):
+    tenant = await db.tenants.find_one({"id": pt["tenant_id"]})
+    return {"patient": pt, "clinic": (tenant or {}).get("name")}
+
+@api.get("/portal/appointments")
+async def portal_appointments(pt: dict = Depends(get_current_patient)):
+    docs = await db.appointments.find({"tenant_id": pt["tenant_id"], "patient": pt["name"]}).sort("created_at", -1).to_list(1000)
+    return [clean(dict(d)) for d in docs]
+
+@api.get("/portal/prescriptions")
+async def portal_prescriptions(pt: dict = Depends(get_current_patient)):
+    docs = await db.prescriptions.find({"tenant_id": pt["tenant_id"], "patient": pt["name"]}).sort("created_at", -1).to_list(1000)
+    return [clean(dict(d)) for d in docs]
+
+@api.get("/portal/invoices")
+async def portal_invoices(pt: dict = Depends(get_current_patient)):
+    docs = await db.invoices.find({"tenant_id": pt["tenant_id"], "patient": pt["name"]}).sort("created_at", -1).to_list(1000)
+    return [clean(dict(d)) for d in docs]
+
+# ---------- Scheduled reminders (platform cron) ----------
+async def _run_appointment_reminders():
+    tomorrow = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+    appts = await db.appointments.find({"date": tomorrow, "reminder_sent": {"$ne": True}}).to_list(5000)
+    for a in appts:
+        pt = await db.patients.find_one({"name": a.get("patient"), "tenant_id": a.get("tenant_id")})
+        email = (pt or {}).get("email") or a.get("email")
+        phone = (pt or {}).get("phone") or a.get("phone")
+        tenant = await db.tenants.find_one({"id": a.get("tenant_id")})
+        body = (f"Reminder: {a.get('patient','')}, you have an appointment with "
+                f"{a.get('doctor','our clinic')} tomorrow ({a.get('date','')}) at {a.get('time','')}.")
+        await notify(a.get("tenant_id"), "appointment_reminder", email, phone,
+                     f"Appointment Reminder - {(tenant or {}).get('name','')}", body)
+        await db.appointments.update_one({"id": a["id"]}, {"$set": {"reminder_sent": True}})
+
+@api.post("/cron/appointment-reminders")
+async def cron_appointment_reminders(request: Request):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    expected = os.environ.get("WEBHOOK_CRON_SECRET", "")
+    auth = request.headers.get("Authorization", "")
+    provided = auth[7:] if auth.startswith("Bearer ") else ""
+    if not expected or not hmac.compare_digest(provided, expected):
+        raise HTTPException(401, "Unauthorized")
+    asyncio.create_task(_run_appointment_reminders())
+    return {"status": "accepted"}
+
+# ---------- Embeddable website booking widget ----------
+from fastapi.responses import Response
+
+WIDGET_JS = r"""(function(){
+  var s = document.currentScript;
+  var key = s.getAttribute('data-api-key');
+  var clinic = s.getAttribute('data-clinic') || 'Book an Appointment';
+  var base = new URL(s.src).origin + '/api/public';
+  var host = document.getElementById('medicore-booking');
+  if(!host){ host = document.createElement('div'); s.parentNode.insertBefore(host, s.nextSibling); }
+  function val(id){ var el = host.querySelector('#'+id); return el ? el.value : ''; }
+  host.innerHTML = '<div style="font-family:system-ui,sans-serif;max-width:420px;border:1px solid #e5e2da;border-radius:14px;padding:22px;background:#fff;box-shadow:0 10px 30px -14px rgba(15,62,46,.28)">'
+    + '<h3 style="margin:0 0 16px;color:#0F3E2E;font-size:20px">'+clinic+'</h3>'
+    + '<div id="mc-form"></div><div id="mc-msg" style="margin-top:10px;font-size:14px"></div>'
+    + '<div style="margin-top:12px;font-size:11px;color:#9a978e">Powered by MediCore</div></div>';
+  var f = host.querySelector('#mc-form');
+  function inp(ph,type,id){ return '<input id="'+id+'" type="'+type+'" placeholder="'+ph+'" style="width:100%;box-sizing:border-box;margin-bottom:10px;padding:11px;border:1px solid #d8d3c8;border-radius:9px;font-size:14px"/>'; }
+  f.innerHTML = inp('Full name','text','mc-name')+inp('Email','email','mc-email')+inp('Phone e.g. +14155550100','text','mc-phone')
+    + inp('','date','mc-date')
+    + '<select id="mc-time" style="width:100%;box-sizing:border-box;margin-bottom:10px;padding:11px;border:1px solid #d8d3c8;border-radius:9px;font-size:14px"><option value="">Pick a date first</option></select>'
+    + inp('Reason for visit','text','mc-reason')
+    + '<button id="mc-submit" style="width:100%;padding:12px;background:#0F3E2E;color:#fff;border:0;border-radius:999px;cursor:pointer;font-size:15px">Book appointment</button>';
+  host.querySelector('#mc-date').addEventListener('change', function(){
+    var t = host.querySelector('#mc-time'); t.innerHTML = '<option>Loading...</option>';
+    fetch(base+'/availability?date='+val('mc-date'), {headers:{'X-API-Key':key}})
+      .then(function(r){return r.json();})
+      .then(function(d){ t.innerHTML = (d.available||[]).map(function(x){return '<option>'+x+'</option>';}).join('') || '<option value="">No open slots</option>'; })
+      .catch(function(){ t.innerHTML = '<option value="">Could not load slots</option>'; });
+  });
+  host.querySelector('#mc-submit').addEventListener('click', function(){
+    var msg = host.querySelector('#mc-msg');
+    var payload = { patient:val('mc-name'), email:val('mc-email'), phone:val('mc-phone'), date:val('mc-date'), time:val('mc-time'), reason:val('mc-reason'), status:'Scheduled' };
+    if(!payload.patient||!payload.date||!payload.time){ msg.style.color='#b45309'; msg.textContent='Please add your name, date and time.'; return; }
+    msg.style.color='#0F3E2E'; msg.textContent='Booking...';
+    fetch(base+'/appointments', {method:'POST',headers:{'X-API-Key':key,'Content-Type':'application/json'},body:JSON.stringify(payload)})
+      .then(function(r){ if(!r.ok) throw new Error('x'); return r.json(); })
+      .then(function(){ msg.style.color='#047857'; msg.textContent='Appointment booked! The clinic will confirm shortly.'; f.querySelectorAll('input,select').forEach(function(e){e.value='';}); })
+      .catch(function(){ msg.style.color='#b91c1c'; msg.textContent='Could not book right now. Please try again.'; });
+  });
+})();"""
+
+@app.get("/api/public/widget.js")
+async def booking_widget_js():
+    return Response(content=WIDGET_JS, media_type="application/javascript")
 
 app.include_router(api)
 app.include_router(public_api)

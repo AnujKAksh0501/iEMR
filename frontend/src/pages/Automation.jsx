@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import IntegrationsPanel from "@/components/IntegrationsPanel";
 import { Mail, MessageCircle, CheckCircle2, AlertCircle, Send } from "lucide-react";
 import { toast } from "sonner";
 
@@ -55,6 +56,8 @@ export default function Automation() {
   return (
     <div data-testid="page-automation">
       <PageHeader title="Automation" subtitle="WhatsApp & Email notifications for key clinic events" />
+
+      <IntegrationsPanel />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2">
         <Card className="card-shadow border-border/70 p-5">

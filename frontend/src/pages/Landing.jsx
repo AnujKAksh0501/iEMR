@@ -27,6 +27,7 @@ export default function Landing() {
           <span className="font-serif text-2xl text-primary">MediCore</span>
         </div>
         <div className="flex items-center gap-2">
+          <Link to="/portal/login"><Button variant="ghost" data-testid="nav-portal-btn">Patient Portal</Button></Link>
           <Link to="/login"><Button variant="ghost" data-testid="nav-login-btn">Sign in</Button></Link>
           <Link to="/register"><Button className="rounded-full" data-testid="nav-register-btn">Get started</Button></Link>
         </div>

@@ -17,6 +17,8 @@ import Automation from "@/pages/Automation";
 import Developer from "@/pages/Developer";
 import Docs from "@/pages/Docs";
 import PaymentSuccess from "@/pages/PaymentSuccess";
+import PortalLogin from "@/pages/portal/PortalLogin";
+import PortalHome from "@/pages/portal/PortalHome";
 
 function Protected({ children }) {
   const { user } = useAuth();
@@ -48,6 +50,8 @@ function App() {
             <Route path="docs" element={<Docs />} />
           </Route>
           <Route path="/payment/success" element={<Protected><PaymentSuccess /></Protected>} />
+          <Route path="/portal/login" element={<PortalLogin />} />
+          <Route path="/portal" element={<PortalHome />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

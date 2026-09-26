@@ -11,6 +11,14 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+export const portalApi = axios.create({ baseURL: API });
+
+portalApi.interceptors.request.use((config) => {
+  const token = localStorage.getItem("emr_portal_token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 export function formatApiError(detail) {
   if (detail == null) return "Something went wrong. Please try again.";
   if (typeof detail === "string") return detail;

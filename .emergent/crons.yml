@@ -1,0 +1,8 @@
+crons:
+  - name: appt-reminders
+    description: "Sends day-before WhatsApp/Email reminders for tomorrow's appointments at 8am UTC"
+    cron: "0 8 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/appointment-reminders"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

@@ -37,6 +37,11 @@ export default function Developer() {
   -H "Content-Type: application/json" \\
   -d '{"patient":"Jane Doe","email":"jane@mail.com","phone":"+14155550100","doctor":"Dr. Smith","date":"2026-07-01","time":"10:00","reason":"Consultation"}'`;
 
+  const widgetSnippet = `<div id="medicore-booking"></div>
+<script src="${API}/public/widget.js"
+  data-api-key="YOUR_API_KEY"
+  data-clinic="Your Clinic Name"></script>`;
+
   return (
     <div data-testid="page-developer">
       <PageHeader
@@ -79,6 +84,20 @@ export default function Developer() {
               <code className="mono text-xs">{p}</code>
             </div>
           ))}
+        </div>
+      </Card>
+
+      <Card className="card-shadow mb-6 border-border/70 p-6" data-testid="widget-card">
+        <h3 className="mb-2 font-serif text-xl">Website Booking Widget</h3>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Drop this snippet into any page of your website. Patients can check availability and book directly into your clinic.
+          Replace <code className="mono">YOUR_API_KEY</code> with a key from the table below.
+        </p>
+        <div className="flex items-start gap-2">
+          <pre className="mono flex-1 overflow-x-auto rounded-lg bg-primary p-4 text-xs text-primary-foreground">{widgetSnippet}</pre>
+          <Button size="icon" variant="outline" onClick={() => copy(widgetSnippet, "widget")} data-testid="copy-widget-btn">
+            {copied === "widget" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          </Button>
         </div>
       </Card>
 
